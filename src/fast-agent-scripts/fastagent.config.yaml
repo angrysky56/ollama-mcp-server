@@ -1,0 +1,9 @@
+# Fast-Agent Configuration File
+
+# MCP Servers configuration
+mcp:
+  servers:
+    ollama_server:
+      # Direct reference to local Ollama MCP server
+      command: "uv"
+      args: ["run", "-m", "ollama_mcp_server.server"]

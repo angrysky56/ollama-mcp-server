@@ -1,0 +1,7 @@
+
+# Test Fast-Agent Configuration
+mcp:
+  ollama_test:
+    command: "uv"
+    args: ["run", "-m", "src.server"]
+    cwd: "/home/ty/Repositories/ai_workspace/ollama-mcp-server"

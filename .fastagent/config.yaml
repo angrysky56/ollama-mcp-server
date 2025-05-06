@@ -1,0 +1,9 @@
+
+# Fast-Agent Configuration File
+mcp:
+  ollama_server:
+    command: "uv"
+    args: [
+      "--directory", "/home/ty/Repositories/ai_workspace/ollama-mcp-server/src/ollama_mcp_server",
+      "run", "server.py"
+      ]

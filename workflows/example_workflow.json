@@ -1,0 +1,21 @@
+{
+  "name": "example_workflow",
+  "description": "A simple test workflow that demonstrates the MCP server's capabilities",
+  "steps": [
+    {
+      "name": "List Models",
+      "tool": "list_ollama_models",
+      "params": {}
+    },
+    {
+      "name": "Run Simple Prompt",
+      "tool": "run_ollama_prompt",
+      "params": {
+        "model": "cogito:latest",
+        "prompt": "Explain what makes quantum computing different from classical computing in 3 sentences.",
+        "temperature": 0.7,
+        "wait_for_result": true
+      }
+    }
+  ]
+}
