@@ -17,7 +17,13 @@ fast = FastAgent("Basic_Agent Agent")
 @fast.agent(
     name="basic_agent_agent",
     instruction="You are a helpful AI assistant. Respond concisely and accurately to user questions.",
-    servers=["ollama_server", "arxiv-mcp-server"]  # Uses the servers defined in fastagent.config.yaml
+    # Add the servers defined in fastagent.config.yaml to use for your agent, must use ollama_server for free models.
+    servers=[
+        "ollama_server",
+        "arxiv-mcp-server",
+        "zonos-tts-mcp",
+        "desktop-commander"
+    ]
 )
 async def main():
     # Run the agent
