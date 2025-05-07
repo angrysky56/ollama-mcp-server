@@ -1,4 +1,8 @@
-# Ollama MCP Server- pretty mangled currently can probably use ollama features but not agents working on a hybrid gui approach, claude writes the agent files and the user can run them via gui, fast-agent gui is mostly broken currently.
+# Ollama MCP Server
+
+## Currently Claude can probably use ollama features but not agents.
+
+I am working on a hybrid gui approach, claude writes the agent files and the user can run them via gui, fast-agent gui is mostly broken currently. You can use MCP with your local Ollama models this way though, which is cool to me lol.
 
 ![alt text](image.png)
 
