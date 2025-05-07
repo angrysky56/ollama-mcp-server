@@ -2,7 +2,7 @@
 """
 Basic Fast-Agent example using Ollama models
 
-This script creates a simple interactive agent that uses Ollama models through the 
+This script creates a simple interactive agent that uses Ollama models through the
 Ollama MCP server. The agent responds to user input and maintains conversation context.
 """
 
@@ -17,7 +17,7 @@ fast = FastAgent("Basic_Agent Agent")
 @fast.agent(
     name="basic_agent_agent",
     instruction="You are a helpful AI assistant. Respond concisely and accurately to user questions.",
-    servers=["ollama_server"]  # Uses the ollama_server defined in fastagent.config.yaml
+    servers=["ollama_server", "arxiv-mcp-server"]  # Uses the servers defined in fastagent.config.yaml
 )
 async def main():
     # Run the agent

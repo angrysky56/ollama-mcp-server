@@ -7,14 +7,12 @@ This tool allows you to easily run, monitor, and interact with agent workflows.
 """
 
 import os
-import sys
 import time
 import threading
 import subprocess
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox
 from pathlib import Path
-import signal
 import pty
 import fcntl
 import termios

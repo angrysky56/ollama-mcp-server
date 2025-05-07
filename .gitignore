@@ -14,5 +14,5 @@ ENV/
 
 uv.lock
 outputs
-
+fastagent.config.yaml
 archive/

@@ -1,5 +1,47 @@
 # Ollama MCP Server- pretty mangled currently can probably use ollama features but not agents working on a hybrid gui approach, claude writes the agent files and the user can run them via gui, fast-agent gui is mostly broken currently.
 
+![alt text](image.png)
+
+You can run this with an activated venv.
+You will have to add your own mcp servers AND local model to:
+
+fastagent.config.yaml
+
+and
+
+basic_agent.py
+
+It can run openAI api models too.
+
+# Model configuration (api fees if api key is set in os environment variables)
+
+i.e. Pay: default_model: "openai.gpt-4o"
+
+or
+
+Use a local tool using ollama LLM Free: default_model: "generic.qwen3:30b-a3b"
+
+---
+
+Edit available model and mcp servers here after copying and removing "example_" from file name:
+
+fastagent.config.yaml
+
+And edit the basic agent.py to add your mcp servers you want the agent to use from the config yaml
+
+```python
+# In repo root
+uv venv
+uv pip install -r requirements.txt
+```
+You can just right-click and run in VS Code or:
+
+```bash
+.venv/bin/python
+cd fast-agent-scripts
+./basic_agent.py
+```
+
 A Model Context Protocol (MCP) server that enables Claude to run Ollama models asynchronously, with outputs stored for later retrieval. Built with uv for Python environment management.
 
 ## Features
