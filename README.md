@@ -1,4 +1,4 @@
-# Ollama MCP Server
+# Ollama MCP Server with [fast-agent](https://fast-agent.ai/#getting-started)
 
 ## Currently Claude can probably use ollama features but not agents.
 
