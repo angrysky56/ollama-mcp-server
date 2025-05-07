@@ -28,8 +28,8 @@ if os.environ.get("OLLAMA_MCP_ROOT"):
     # Use the environment variable if set
     BASE_DIR = Path(os.environ["OLLAMA_MCP_ROOT"])
 else:
-    # Fall back to detecting from script location
-    BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__))).parent
+    # Fall back to detecting from script location - go up two levels to reach repo root
+    BASE_DIR = Path(os.path.dirname(os.path.abspath(__file__))).parent.parent
 
 # Print the actual paths for debugging
 print(f"BASE_DIR: {BASE_DIR}")
@@ -52,20 +52,8 @@ SCRIPTS_DIR.mkdir(exist_ok=True)
 WORKFLOWS_DIR.mkdir(exist_ok=True)
 FASTAGENT_DIR.mkdir(exist_ok=True)
 
-# Create FastAgent config directory if it doesn't exist
-FASTAGENT_CONFIG_FILE = FASTAGENT_DIR / "fastagent.config.yaml"
-if not FASTAGENT_CONFIG_FILE.exists():
-    with open(FASTAGENT_CONFIG_FILE, "w") as f:
-        f.write("""# Fast-Agent Configuration File
-
-# MCP Servers configuration
-mcp:
-  servers:
-    ollama_server:
-      # Direct reference to local Ollama MCP server
-      command: "uv"
-      args: ["run", "-m", "ollama_mcp_server.server"]
-""")
+# We don't need to create a FastAgent config - the MCP server provides all functionality directly
+# Fast-agent scripts can work with the MCP server tools without additional configuration
 
 # Initialize the MCP server
 mcp = FastMCP("OllamaMCPServer")
@@ -80,6 +68,9 @@ running_processes: Dict[str, subprocess.Popen] = {}
 
 # Dictionary to store process output for async handling
 process_outputs: Dict[str, str] = {}
+
+# Store the selected default Ollama model
+default_ollama_model: Optional[str] = None
 
 
 def clean_ansi_escape_codes(text: str) -> str:
@@ -844,8 +835,7 @@ async def run_bash_command(
 # This is our fix to properly handle nested functions in the workflow tool
 @mcp.tool()
 async def run_workflow(
-    steps: List[Dict[str, Any]],
-    wait_for_completion: bool = False
+    steps: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
     """
     Run a workflow of multiple steps sequentially.
@@ -854,7 +844,7 @@ async def run_workflow(
         steps: List of step dictionaries, each containing:
                - tool: Name of the tool to call (e.g., "run_ollama_prompt")
                - params: Parameters to pass to the tool
-        wait_for_completion: Whether to wait for all steps to complete
+               - name: Optional step name
 
     Returns:
         Dict with workflow execution status
@@ -896,57 +886,22 @@ async def run_workflow(
                 f.write(f"Tool: {tool_name}\n")
                 f.write(f"Params: {json.dumps(params)}\n\n")
 
-            # Directly execute the steps based on tool name
+            # Remove any wait_for_result parameters to ensure consistent behavior
+            if "wait_for_result" in params:
+                del params["wait_for_result"]
+
+            # Execute the tool using MCP server's function registry 
+            # instead of hardcoding each tool
             try:
-                result = None
-
-                if tool_name == "list_ollama_models":
-                    result = await list_ollama_models()
-                elif tool_name == "run_ollama_prompt":
-                    model = params.get("model", "")
-                    prompt = params.get("prompt", "")
-                    system_prompt = params.get("system_prompt")
-                    temperature = params.get("temperature", 0.7)
-                    wait_for_result = params.get("wait_for_result", False)
-                    max_tokens = params.get("max_tokens")
-                    output_format = params.get("output_format", "text")
-                    result = await run_ollama_prompt(model, prompt, system_prompt, temperature,
-                                                   wait_for_result, max_tokens, output_format)
-                elif tool_name == "get_job_status":
-                    job_id = params.get("job_id", "")
-                    result = await get_job_status(job_id)
-                elif tool_name == "cancel_job":
-                    job_id = params.get("job_id", "")
-                    result = await cancel_job(job_id)
-                elif tool_name == "list_jobs":
-                    result = await list_jobs()
-                elif tool_name == "save_script":
-                    name = params.get("name", "")
-                    content = params.get("content", "")
-                    result = await save_script(name, content)
-                elif tool_name == "list_scripts":
-                    result = await list_scripts()
-                elif tool_name == "get_script":
-                    name = params.get("name", "")
-                    result = await get_script(name)
-                elif tool_name == "run_script":
-                    script_name = params.get("script_name", "")
-                    model = params.get("model", "")
-                    variables = params.get("variables", {})
-                    temperature = params.get("temperature", 0.7)
-                    wait_for_result = params.get("wait_for_result", False)
-                    max_tokens = params.get("max_tokens")
-                    output_format = params.get("output_format", "text")
-                    result = await run_script(script_name, model, variables, temperature,
-                                            wait_for_result, max_tokens, output_format)
-                elif tool_name == "run_bash_command":
-                    command = params.get("command", "")
-                    wait_for_result = params.get("wait_for_result", False)
-                    timeout = params.get("timeout")
-                    result = await run_bash_command(command, wait_for_result, timeout)
-                else:
+                # Get the actual tool function from MCP registry
+                tool_fn = getattr(mcp._func_registry, tool_name, None)
+                
+                if tool_fn is None:
                     raise ValueError(f"Unknown tool: {tool_name}")
-
+                
+                # Execute the tool with its parameters
+                result = await tool_fn(**params)
+                
                 # Record the result
                 with open(output_file, "a") as f:
                     f.write(f"Result: {json.dumps(result)}\n")
@@ -975,33 +930,15 @@ async def run_workflow(
 
         return results
 
-    # Start the workflow execution
-    if wait_for_completion:
-        try:
-            results = await execute_workflow()
-            return {
-                "status": "complete",
-                "run_id": run_id,
-                "output_file": str(output_file),
-                "results": results
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "run_id": run_id,
-                "output_file": str(output_file),
-                "message": f"Workflow execution failed: {str(e)}"
-            }
-    else:
-        # Start the workflow in the background
-        asyncio.create_task(execute_workflow())
+    # Start the workflow in the background
+    asyncio.create_task(execute_workflow())
 
-        return {
-            "status": "running",
-            "run_id": run_id,
-            "output_file": str(output_file),
-            "message": "Workflow started, check output file for progress"
-        }
+    return {
+        "status": "running",
+        "run_id": run_id,
+        "output_file": str(output_file),
+        "message": "Workflow started, check output file for progress"
+    }
 
 
 # ---------- Fast Agent Tools ----------
@@ -1293,7 +1230,6 @@ async def run_fastagent_script(
     name: str,
     agent_name: Optional[str] = None,
     message: Optional[str] = None,
-    wait_for_result: bool = False,
     timeout: Optional[int] = None
 ) -> Dict[str, Any]:
     """
@@ -1303,7 +1239,6 @@ async def run_fastagent_script(
         name: Name of the script (without extension)
         agent_name: Optional name of the agent to target (defaults to the main agent)
         message: Optional message to send to the agent
-        wait_for_result: Whether to wait for completion before returning
         timeout: Maximum time (in seconds) to wait for the command to complete
 
     Returns:
@@ -1374,45 +1309,6 @@ async def run_fastagent_script(
 
     # Store the process for management
     running_processes[job_id] = process
-
-    # If wait_for_result is True, wait for the process to complete
-    if wait_for_result:
-        try:
-            if timeout:
-                await asyncio.wait_for(asyncio.to_thread(process.wait), timeout=timeout)
-            else:
-                await asyncio.to_thread(process.wait)
-
-            # Read the output file
-            with open(output_file, "r") as f:
-                content = f.read()
-
-            # Clean up the process
-            if job_id in running_processes:
-                del running_processes[job_id]
-
-            return {
-                "status": "complete",
-                "job_id": job_id,
-                "output_file": str(output_file),
-                "exitcode": process.returncode,
-                "content": content
-            }
-        except asyncio.TimeoutError:
-            # Timeout occurred, terminate the process
-            process.terminate()
-            return {
-                "status": "timeout",
-                "job_id": job_id,
-                "output_file": str(output_file),
-                "message": f"Command timed out after {timeout} seconds"
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "job_id": job_id,
-                "message": f"Error: {str(e)}"
-            }
 
     # Return immediately with job information
     return {

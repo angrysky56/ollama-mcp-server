@@ -1,4 +1,4 @@
-# Ollama MCP Server
+# Ollama MCP Server- pretty mangled currently can probably use ollama features but not agents working on a hybrid gui approach, claude writes the agent files and the user can run them via gui, fast-agent gui is mostly broken currently.
 
 A Model Context Protocol (MCP) server that enables Claude to run Ollama models asynchronously, with outputs stored for later retrieval. Built with uv for Python environment management.
 
@@ -10,18 +10,6 @@ A Model Context Protocol (MCP) server that enables Claude to run Ollama models a
 - All outputs saved to a dedicated directory
 - Simple configuration for Claude Desktop
 
-## Project Structure
-
-```
-ollama-mcp-server/
-├── src/                    # Source code
-│   └── server.py           # MCP server implementation
-├── outputs/                # Model outputs get stored here
-├── scripts/                # Prompt templates and scripts
-├── workflows/              # Directory for workflow definitions
-├── claude_desktop_config.json  # Claude Desktop configuration
-└── README.md
-```
 
 ## Tools Overview
 
@@ -52,19 +40,17 @@ The server provides these tools to Claude:
 
 To use this server with Claude Desktop:
 
-1. Copy the content of `claude_desktop_config.json` to your Claude Desktop configuration:
+1. Copy the content of `claude_desktop_config.json` to your Claude Desktop configuration with your own paths:
 
 ```json
 {
   "mcpServers": {
-    "OllamaMCPServer": {
+     "OllamaMCPServer": {
       "command": "uv",
       "args": [
+        "--directory", "/home/ty/Repositories/ai_workspace/ollama-mcp-server/src/ollama_mcp_server",
         "run",
-        "-m",
-        "src.server",
-        "--directory",
-        "/home/ty/Repositories/ai_workspace/ollama-mcp-server"
+        "server.py"
       ]
     }
   }

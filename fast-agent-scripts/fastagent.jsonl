@@ -1,0 +1,1 @@
+{"level":"ERROR","timestamp":"2025-05-06T21:47:30.596771","namespace":"mcp_agent.mcp.mcp_connection_manager","message":"ollama_server: Lifecycle task encountered an error: unhandled errors in a TaskGroup (1 sub-exception)","data":{"exc_info":true,"data":{"progress_action":"Error","server_name":"ollama_server"}}}

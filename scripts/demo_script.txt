@@ -1,0 +1,10 @@
+SYSTEM: You are a helpful AI assistant that responds to the question in a clear and concise way.
+
+USER: {question}
+
+The question asks: {question}
+
+Please provide your answer considering the following context:
+1. Be concise and to the point
+2. If relevant, provide examples
+3. Format your response clearly

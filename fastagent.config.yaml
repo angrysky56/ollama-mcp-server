@@ -1,8 +1,55 @@
-# Fast-Agent Configuration File
-
-# MCP Servers configuration
+# Fast-Agent MCP Server Configuration
 mcp:
-  ollama_server:
-    # Direct reference to local Ollama MCP server
-    command: "uv"
-    args: ["run", "-m", "src.ollama_mcp_server.server"]
+  servers:
+    # Map the "ollama_server" name to the "OllamaMCPServer" configuration
+    ollama_server:
+      command: "uv"
+      args:
+        - "--directory"
+        - "/home/ty/Repositories/ai_workspace/ollama-mcp-server/src/ollama_mcp_server"
+        - "run"
+        - "server.py"
+      
+    # Include other useful servers from your configuration
+    arxiv-mcp-server:
+      command: "uv"
+      args:
+        - "--directory"
+        - "/home/ty/Repositories/arxiv-mcp-server"
+        - "run"
+        - "arxiv-mcp-server"
+        - "--storage-path"
+        - "/home/ty/Documents/core_bot_instruction_concepts/arxiv-papers"
+    
+    mcp-code-executor:
+      command: "node"
+      args:
+        - "/home/ty/Repositories/mcp_code_executor/build/index.js"
+      env:
+        CODE_STORAGE_DIR: "/home/ty/Repositories/ai_workspace/python_coding_storage/"
+        CONDA_ENV_NAME: "mcp_code_executor_env"
+    
+    chroma:
+      command: "uvx"
+      args:
+        - "chroma-mcp"
+        - "--client-type"
+        - "persistent"
+        - "--data-dir"
+        - "/home/ty/Repositories/chroma-db"
+    
+    neocoder:
+      command: "uv"
+      args:
+        - "--directory"
+        - "/home/ty/Repositories/NeoCoder-neo4j-ai-workflow/src/mcp_neocoder"
+        - "run"
+        - "mcp_neocoder"
+      env:
+        NEO4J_URL: "bolt://localhost:7687"
+        NEO4J_USERNAME: "neo4j"
+        NEO4J_PASSWORD: "00000000" 
+        NEO4J_DATABASE: "neo4j"
+
+# Default model configuration (optional)
+default_model: "openai.gpt-4o"
