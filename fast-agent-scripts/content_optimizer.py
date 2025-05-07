@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 from mcp_agent.core.fastagent import FastAgent
 
+
 # Create FastAgent instance - no config file needed
 # The MCP server provides all necessary functionality
 fast = FastAgent("Content Optimizer")
@@ -20,7 +21,10 @@ fast = FastAgent("Content Optimizer")
     instruction="""You are a content generator specialized in creating high-quality, 
     thoughtful content based on user requests. Be creative, accurate, and comprehensive.
     Generate content that is well-structured and engaging.""",
-    model="passthrough"  # Using passthrough model to avoid compatibility issues
+    model="generic.phi4-reasoning:14b-plus-q4_K_M",  # Use phi4 for creative content generation
+    servers=["ollama_server"],
+    use_history=True,
+    # Remove request_params completely to use system defaults
 )
 
 @fast.agent(
@@ -38,7 +42,10 @@ fast = FastAgent("Content Optimizer")
     
     Always include a rating at the beginning of your response, e.g., "RATING: GOOD"
     """,
-    model="passthrough"  # Using passthrough model to avoid compatibility issues
+    model="generic.qwen3:7b",  # Use qwen for evaluation
+    servers=["ollama_server"],
+    use_history=True,
+    # Remove request_params completely to use system defaults
 )
 
 @fast.evaluator_optimizer(
@@ -46,7 +53,7 @@ fast = FastAgent("Content Optimizer")
     generator="content_generator",
     evaluator="quality_evaluator",
     min_rating="EXCELLENT",
-    max_refinements=3,
+    max_refinements=3
 )
 
 async def main():
@@ -55,11 +62,21 @@ async def main():
         # Welcome message
         print("=== Content Optimizer Workflow ===")
         print("This workflow will generate content and iteratively improve it")
-        print("until it reaches EXCELLENT quality or max refinements.")
-        print("Type your content request to begin...\n")
+        print("until it reaches EXCELLENT quality or max refinements (3).")
+        print("\nThe process uses:")
+        print("- Generator: phi4-reasoning model for creative content creation")
+        print("- Evaluator: qwen3 model for critical assessment")
+        print("\nType your content request to begin (e.g., 'Write a blog post about AI ethics')...\n")
 
-        # Start interactive mode
-        await agent.interactive()
+        try:
+            # Start interactive mode with the specific workflow
+            await agent.content_optimizer_workflow.interactive()
+        except Exception as e:
+            print(f"\nError occurred: {str(e)}")
+            print("If you're seeing model-related errors, try running with a specific model:")
+            print("uv run fast-agent-scripts/content_optimizer.py --model generic.phi4-reasoning:14b-plus-q4_K_M")
+            print("or")
+            print("uv run fast-agent-scripts/content_optimizer.py --model generic.llama3.2:latest")
 
 if __name__ == "__main__":
     asyncio.run(main())
