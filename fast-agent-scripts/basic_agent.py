@@ -10,13 +10,17 @@ import asyncio
 from mcp_agent.core.fastagent import FastAgent
 
 # Create FastAgent instance
-fast = FastAgent("Basic_Agent Agent")
+fast = FastAgent("basic_agent")
 
-# Define the agent - note that the model is specified at runtime using the --model flag
+# Define the agent - note that the model is specified at runtime using the --model flag or default is selected from /fastagent.config.yaml
 # This way the GUI can specify which Ollama model to use
 @fast.agent(
-    name="basic_agent_agent",
+    name="basic_agent",
     instruction="You are a helpful AI assistant. Respond concisely and accurately to user questions.",
+    use_history=True, # Use history to maintain conversation context
+    # request_params= "temperature=0.7" "max_tokens=8176" "context_length=31768", # not working, no idea, additional parameters for the LLM (or RequestParams())
+    human_input=True,
+    # agent can request human input
     # Add the servers defined in fastagent.config.yaml to use for your agent, must use ollama_server for free models.
     servers=[
         "ollama_server",
@@ -42,7 +46,7 @@ async def main():
 
         try:
             # For parallel workflows, we use the agent's interactive mode and specify which workflow to use
-            await agent.interactive(agent="basic_agent_agent")
+            await agent.interactive(agent="basic_agent")
         except Exception as e:
             print(f"\nError occurred: {str(e)}")
             print("If you're seeing model-related errors, consider:")
