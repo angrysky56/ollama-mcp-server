@@ -2,6 +2,8 @@
 
 ## Currently Claude can probably use ollama features but not agents.
 
+See project wiki for some [examples](https://github.com/angrysky56/ollama-mcp-server/wiki)
+
 I am working on a hybrid gui approach, claude writes the agent files and the user can run them via gui, fast-agent gui is mostly broken currently. You can use MCP with your local Ollama models this way though, which is cool to me lol.
 
 ![alt text](image.png)
