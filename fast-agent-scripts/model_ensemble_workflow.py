@@ -22,7 +22,7 @@ fast = FastAgent("Model Ensemble Workflow")
     When a question involves research topics or papers, use the arxiv-mcp-server to search for relevant information.
     """,
     model="generic.qwen3:30b-a3b",  # Use model that supports tool usage
-    servers=["ollama_server", "arxiv-mcp-server", "fetch"],
+    servers=["ollama_server", "arxiv-mcp-server", "brave-search"],
     use_history=True,
     # Remove request_params completely to use system defaults
 )
@@ -33,7 +33,7 @@ fast = FastAgent("Model Ensemble Workflow")
     Focus on providing insightful perspectives that others might miss.
     """,
     model="generic.qwen3",  # Good for creative responses
-    servers=["ollama_server", "fetch"],
+    servers=["ollama_server", "brave-search"],
     use_history=True,
     # Remove request_params completely to use system defaults
 )
@@ -51,7 +51,7 @@ fast = FastAgent("Model Ensemble Workflow")
     Always explain which tools you're using and why before showing results.
     """,
     model="generic.qwen3:30b-a3b",  # Qwen has better tool capabilities
-    servers=["ollama_server", "arxiv-mcp-server", "desktop-commander", "fetch"],
+    servers=["ollama_server", "arxiv-mcp-server", "desktop-commander", "brave-search"],
     use_history=True,
     # Remove request_params completely to use system defaults
 )
@@ -80,8 +80,8 @@ fast = FastAgent("Model Ensemble Workflow")
     3. Leverages practical tool-based information from the tool agent
     4. Highlights areas of model agreement and disagreement
     """,
-    model="generic.qwen3:30b-a3b",  # Switch to standard qwen model that doesn't use thinking tags
-    servers=["ollama_server", "fetch"],  # Limited server access for aggregator
+    model="generic.qwen3:32b",  # Switch to standard qwen model that doesn't use thinking tags
+    servers=["ollama_server", "brave-search"],  # Limited server access for aggregator
     use_history=True,
     # Remove request_params completely to use system defaults
 )
@@ -90,7 +90,9 @@ fast = FastAgent("Model Ensemble Workflow")
     name="model_ensemble_workflow",
     fan_out=["research_agent", "creative_agent", "tool_agent"],
     fan_in="aggregator",
-    instruction="Run multiple Ollama models in parallel to generate diverse responses, then aggregate the results to provide a comprehensive analysis.",
+    fan_in_instruction="Aggregate the outputs from the ensemble models and provide a comprehensive analysis.",
+    fan_in_model="generic.qwen3:32b",  # Aggregator model
+    fan_in_servers=["ollama_server", "brave-search"],  # Limited server access for aggregator
     include_request=True  # Include the original request in the fan-in message
 )
 
@@ -105,7 +107,7 @@ async def main():
         print("\nThe outputs are then combined by an aggregator model.")
         print("\nSuggested queries to try:")
         print("- Research questions (leverages arxiv-mcp-server)")
-        print("- Web content analysis (leverages fetch tool)")
+        print("- Web content analysis (leverages brave-search tool)")
         print("- System information requests (leverages desktop-commander)")
         print("- Complex problems requiring multiple perspectives")
         print("\nType your query to begin...\n")

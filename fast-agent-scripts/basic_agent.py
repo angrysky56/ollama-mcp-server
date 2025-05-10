@@ -16,19 +16,18 @@ fast = FastAgent("basic_agent")
 # This way the GUI can specify which Ollama model to use
 @fast.agent(
     name="basic_agent",
-    instruction="You are a helpful AI assistant. Respond concisely and accurately to user questions.",
+    instruction="You are a helpful AI assistant with an array of available tools.",
     use_history=True, # Use history to maintain conversation context
-    # request_params= "temperature=0.7" "max_tokens=8176" "context_length=31768", # not working, no idea, additional parameters for the LLM (or RequestParams())
-    human_input=True,
-    # agent can request human input
+    model="generic.sap3e-aseke-qwen3:30b-a3b",
     # Add the servers defined in fastagent.config.yaml to use for your agent, must use ollama_server for free models.
     servers=[
         "ollama_server",
         "arxiv-mcp-server",
-        "zonos-tts-mcp",
         "desktop-commander",
         "brave-search",
-        "mcp-code-executor"
+        "mcp-code-executor",
+        "sqlite",
+        "puppeteer"
     ]
 )
 

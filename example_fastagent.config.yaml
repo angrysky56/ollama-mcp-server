@@ -51,5 +51,8 @@ mcp:
         NEO4J_PASSWORD: "<your-password-here>"
         NEO4J_DATABASE: "neo4j"
 
-# Default model configuration (api fees optional) default_model: "openai.gpt-4o"
-default_model: "generic.qwen3:30b-a3b"
+# Default model configuration (api fees optional)
+# default_model: "openai.gpt-4o"
+# default_model: "generic.qwen3:30b-a3b"
+default_model: "generic.qwen3:latest"
+

@@ -154,18 +154,43 @@ def clean_ollama_output(content: str) -> str:
                 if not line:
                     continue
 
+                # Skip download progress lines
+                if "pulling" in line.lower() or "verifying" in line.lower() or "writing manifest" in line.lower() or "success" in line:
+                    continue
+                # Skip UI elements and token markers
+                if line.startswith(("r", "[", "╭", "│", "╰")):
+                    continue
+                if any(char in line for char in ["⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]):
+                    continue
+                if line.startswith("METADATA:") or line.startswith("PROMPT:"):
+                    continue
+
                 try:
                     json_data = json.loads(line)
                     if "response" in json_data:
                         actual_response += json_data["response"]
                 except json.JSONDecodeError:
-                    # If not JSON, just add the line
-                    actual_response += line + "\n"
+                    # Not JSON, but might be actual response text
+                    # Skip lines that look like token identifiers
+                    if not re.match(r'^[a-z]\d+', line):
+                        actual_response += line + "\n"
 
             if actual_response:
                 # If we successfully extracted response data, use it
                 cleaned_response = clean_ansi_escape_codes(actual_response)
                 return header + cleaned_response
+            
+            # If we couldn't extract a clean response, try a different approach
+            # Look for the [ASSISTANT] marker and extract text after it
+            if "[ASSISTANT]" in response_text:
+                assistant_parts = response_text.split("[ASSISTANT]", 1)
+                if len(assistant_parts) > 1:
+                    assistant_response = assistant_parts[1].strip()
+                    # Remove any remaining UI elements
+                    cleaned_response = re.sub(r'\[.*?\]', '', assistant_response)
+                    cleaned_response = clean_ansi_escape_codes(cleaned_response)
+                    return header + cleaned_response
+                    
         except Exception:
             # Fall back to original cleaning if JSON parsing fails
             pass
@@ -173,6 +198,13 @@ def clean_ollama_output(content: str) -> str:
         # Clean the response text (fallback)
         cleaned_response = clean_ansi_escape_codes(response_text)
 
+        # Final attempt to extract only the meaningful content
+        # Remove token markers and UI elements
+        cleaned_response = re.sub(r'r\d+[a-z]*', '', cleaned_response)
+        cleaned_response = re.sub(r'\[[^\]]+\]', '', cleaned_response)
+        cleaned_response = re.sub(r'[╭│╰─]', '', cleaned_response)
+        cleaned_response = re.sub(r'[⠙⠹⠸⠼⠴⠦⠧⠇⠏]', '', cleaned_response)
+        
         # Reconstruct the content
         return header + cleaned_response
 
@@ -307,7 +339,12 @@ async def run_ollama_prompt(
         response_text = ""
         if process.stdout:
             for line in process.stdout:
-                output += line
+                line = line.strip()
+                if not line:
+                    continue
+                
+                output += line + "\n"
+                
                 # Process JSON output if available
                 try:
                     json_data = json.loads(line)
@@ -317,9 +354,15 @@ async def run_ollama_prompt(
                         with open(output_file, "a") as f:
                             f.write(json_data["response"])
                 except json.JSONDecodeError:
-                    # If not valid JSON, write the raw line
-                    with open(output_file, "a") as f:
-                        f.write(line)
+                    # Skip download progress, UI elements and token data
+                    if "pulling" in line.lower() or "verifying" in line.lower() or "writing manifest" in line.lower() or "success" in line:
+                        # Skip download progress lines
+                        continue
+                    if not line.startswith(("r", "[", "╭", "│", "╰")) and not ("⠙" in line or "⠹" in line or "⠸" in line or "⠼" in line or "⠴" in line or "⠦" in line or "⠧" in line or "⠇" in line or "⠏" in line):
+                        # This might be actual response text
+                        if line and not line.startswith("METADATA:") and not line.startswith("PROMPT:"):
+                            with open(output_file, "a") as f:
+                                f.write(line + "\n")
 
         # Store the complete output
         process_outputs[job_id] = response_text or output

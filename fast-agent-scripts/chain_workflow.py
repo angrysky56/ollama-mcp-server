@@ -20,7 +20,7 @@ fast = FastAgent("Chain Workflow Agent")
     name="researcher",
     instruction="You are a thorough researcher. Analyze topics deeply and provide detailed information.",
     servers=["ollama_server"],
-    model="generic.phi4-reasoning:14b-plus-q4_K_M",  # Use phi4 for detailed research
+    model="generic.qwen3",  # Use for detailed research
     use_history=True,
     request_params={"temperature": 0.7}
 )
@@ -30,7 +30,7 @@ fast = FastAgent("Chain Workflow Agent")
     name="summarizer",
     instruction="You are a concise summarizer. Take complex information and create clear, brief summaries.",
     servers=["ollama_server"],
-    model="generic.qwen3:0.6b",  # Use qwen for concise summaries
+    model="generic.qwen3",  # Use for concise summaries
     use_history=True,
     request_params={"temperature": 0.4}  # Lower temperature for more focused summaries
 )
@@ -52,7 +52,7 @@ async def main():
         print("1. Researcher - Analyzes topics in depth (phi4-reasoning)")
         print("2. Summarizer - Creates concise summaries (qwen3)")
         print("\nType your research question to begin...\n")
-        
+
         # Start interactive mode with the research_workflow chain
         await agent.research_workflow.interactive()
 
