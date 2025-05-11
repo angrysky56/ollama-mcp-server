@@ -19,10 +19,10 @@ fast = FastAgent("Model Ensemble Workflow")
     instruction="""You are a research agent that excels at logical reasoning and structured thinking.
     Provide detailed, analytical responses with careful step-by-step reasoning.
 
-    When a question involves research topics or papers, use the arxiv-mcp-server to search for relevant information.
+    When a question involves research topics or papers use search for relevant information.
     """,
-    model="generic.qwen3:30b-a3b",  # Use model that supports tool usage
-    servers=["ollama_server", "arxiv-mcp-server", "brave-search"],
+    model="generic.sap3e-aseke-qwen3:30b-a3b",  # Use model that supports tool usage
+    servers=["ollama_server", "arxiv-mcp-server", "brave-search", "desktop-commander"],
     use_history=True,
     # Remove request_params completely to use system defaults
 )
@@ -32,7 +32,7 @@ fast = FastAgent("Model Ensemble Workflow")
     instruction="""You are a creative agent that excels at creative thinking and nuanced responses.
     Focus on providing insightful perspectives that others might miss.
     """,
-    model="generic.qwen3",  # Good for creative responses
+    model="generic.qwen3:14b",  # Good for creative responses
     servers=["ollama_server", "arxiv-mcp-server", "desktop-commander", "brave-search"],
     use_history=True,
     # Remove request_params completely to use system defaults
@@ -42,15 +42,11 @@ fast = FastAgent("Model Ensemble Workflow")
     name="tool_agent",
     instruction="""You are a specialized tool-using agent. You excel at automation and practical responses.
 
-    You have access to the following tools - use them proactively when appropriate:
-    1. fetch - Retrieve web content and information from URLs
-    2. desktop-commander - Execute system commands when explicitly requested
-    3. arxiv-mcp-server - Search for research papers on specific topics
+    You have access to tools - use them proactively when appropriate:
 
     Analyze requests carefully to determine which tools would be most helpful.
-    Always explain which tools you're using and why before showing results.
     """,
-    model="generic.qwen3:30b-a3b",  # Qwen has better tool capabilities
+    model="generic.qwen3:4b",  # Qwen has better tool capabilities
     servers=["ollama_server", "arxiv-mcp-server", "desktop-commander", "brave-search"],
     use_history=True,
     # Remove request_params completely to use system defaults
@@ -66,7 +62,7 @@ fast = FastAgent("Model Ensemble Workflow")
     2. A creative perspective from the creative agent
     3. A practical approach with tool use from the tool agent
 
-    IMPORTANT: DO NOT use <think> tags in your response. Keep your reasoning process internal.
+    IMPORTANT:
 
     Analyze the responses carefully, noting:
     - Where models agree (high confidence information)
@@ -79,8 +75,10 @@ fast = FastAgent("Model Ensemble Workflow")
     2. Incorporates creative insights from the creative agent
     3. Leverages practical tool-based information from the tool agent
     4. Highlights areas of model agreement and disagreement
+
     """,
-    model="generic.qwen3:32b",  # Switch to standard qwen model that doesn't use thinking tags
+
+    model="generic.qwen3:30b-a3b",
     servers=["ollama_server", "brave-search"],  # Limited server access for aggregator
     use_history=True,
     # Remove request_params completely to use system defaults
