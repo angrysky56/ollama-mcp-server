@@ -1,0 +1,1 @@
+{"level":"ERROR","timestamp":"2025-05-10T18:33:23.062566","namespace":"mcp_agent.llm.providers.augmented_llm_openai.python_agent","message":"Error: Error code: 404 - {'error': {'message': 'model \"sap3e-aseke-qwen3\" not found, try pulling it first', 'type': 'api_error', 'param': None, 'code': None}}"}

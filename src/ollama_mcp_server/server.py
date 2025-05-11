@@ -63,6 +63,9 @@ print(f"Using outputs directory: {OUTPUTS_DIR}")
 print(f"Using scripts directory: {SCRIPTS_DIR}")
 print(f"Using workflows directory: {WORKFLOWS_DIR}")
 
+# Global instance for accessing server in prompt handlers
+server_instance = None
+
 # Dictionary to track running processes
 running_processes: Dict[str, subprocess.Popen] = {}
 
@@ -214,12 +217,7 @@ def clean_ollama_output(content: str) -> str:
 
 @mcp.tool()
 async def list_ollama_models() -> Dict[str, Any]:
-    """
-    List all available Ollama models installed locally.
-
-    Returns:
-        Dict containing a list of models with their name, ID, and size
-    """
+    """List all available Ollama models - Shows installed models with correct names and sizes"""
     try:
         process = subprocess.run(
             ["ollama", "list"],
@@ -264,21 +262,7 @@ async def run_ollama_prompt(
     max_tokens: Optional[int] = None,
     output_format: str = "text"
 ) -> Dict[str, Any]:
-    """
-    Run a prompt using the specified Ollama model asynchronously.
-
-    Args:
-        model: Name of the Ollama model to use
-        prompt: The prompt text to send to the model
-        system_prompt: Optional system prompt to guide the model's behavior
-        temperature: Sampling temperature (0.0 to 1.0)
-        wait_for_result: Whether to wait for the model to complete before returning
-        max_tokens: Maximum number of tokens to generate
-        output_format: Output format: "text" or "json"
-
-    Returns:
-        Dict with job ID, status, and output file location
-    """
+    """Run a prompt with Ollama model - Execute prompts with specified models synchronously or asynchronously"""
     # Generate a unique job ID
     job_id = str(uuid.uuid4())
     output_file = OUTPUTS_DIR / f"{job_id}.txt"
@@ -1483,6 +1467,544 @@ if __name__ == "__main__":
             "status": "error",
             "message": f"Failed to create workflow script: {str(e)}"
         }
+
+
+# ---------- MCP Prompts ----------
+
+@mcp.prompt()
+async def ollama_run_prompt(
+    prompt: str,
+    model: str = "qwen3:0.6b",
+    temperature: float = 0.7,
+    system_prompt: Optional[str] = None,
+    max_tokens: Optional[int] = None,
+    output_format: str = "text"
+) -> str:
+    """Run a prompt with specified Ollama model - Execute prompts with detailed parameter guidance"""
+    
+    # Model format guidance
+    model_format_guide = f"""
+MODEL FORMAT EXAMPLES:
+- Standard: qwen3:0.6b, llama3:8b, mistral:7b
+- Custom: your-model:tag
+- With provider: provider/model:tag
+CURRENT: {model}
+"""
+    
+    # Output format options
+    output_format_guide = f"""
+OUTPUT FORMAT OPTIONS:
+- text: Standard text response (default)
+- json: Structured JSON output
+SELECTED: {output_format}
+"""
+    
+    return f"""Execute an Ollama model prompt using the MCP server tools.
+
+TASK: Run the following prompt with the specified Ollama model.
+
+PARAMETERS:
+- PROMPT: {prompt}
+- MODEL: {model}
+- TEMPERATURE: {temperature} (0.0=deterministic, 1.0=creative)
+- SYSTEM_PROMPT: {system_prompt or 'None'}
+- MAX_TOKENS: {max_tokens or 'default'}
+- OUTPUT_FORMAT: {output_format}
+
+{model_format_guide}
+{output_format_guide}
+
+STEP-BY-STEP EXECUTION:
+
+1. VALIDATE MODEL (if unsure):
+   Tool: list_ollama_models
+   Purpose: Verify model exists and get exact name
+   Use when: Model name uncertain or getting errors
+
+2. EXECUTE PROMPT:
+   Tool: run_ollama_prompt
+   Required Parameters:
+   - model: "{model}"
+   - prompt: "{prompt}"
+   Optional Parameters:
+   - system_prompt: {f'"{system_prompt}"' if system_prompt else 'null'}
+   - temperature: {temperature}
+   - max_tokens: {max_tokens if max_tokens else 'null'}  
+   - output_format: "{output_format}"
+   - wait_for_result: true (for immediate response)
+
+3. HANDLE ASYNC EXECUTION (if wait_for_result=false):
+   Tool: get_job_status
+   Parameters:
+   - job_id: (returned from run_ollama_prompt)
+   Process:
+   - Poll until status="complete"
+   - Retrieve content from response
+
+TOOLS WITH DESCRIPTIONS:
+- list_ollama_models: List all installed Ollama models with exact names and sizes
+- run_ollama_prompt: Execute a prompt with an Ollama model (sync or async)
+- get_job_status: Check completion status and retrieve results for async jobs
+
+ERROR HANDLING:
+- "Model not found": Use list_ollama_models to find correct name
+- "Invalid parameters": Check parameter format and types
+- "Timeout": Increase timeout or use async execution"""
+
+
+@mcp.prompt()
+async def model_comparison(
+    prompt: str,
+    models: str,
+    temperature: Optional[float] = 0.7
+) -> str:
+    """Compare responses from multiple models"""
+    model_list = [m.strip() for m in models.split(',') if m.strip()]
+    
+    return f"""Compare responses from multiple Ollama models for the same prompt.
+
+TASK: Run a prompt through multiple models and compare their outputs.
+
+PROMPT: {prompt}
+MODELS: {', '.join(model_list)}
+TEMPERATURE: {temperature}
+
+INSTRUCTIONS:
+1. For each model in the list:
+   a. Call 'run_ollama_prompt' with the same prompt
+   b. Set wait_for_result=True to get immediate results
+   c. Collect each model's response
+2. Organize and compare the responses
+3. Present a comparison highlighting differences and similarities
+
+TOOLS TO USE:
+- run_ollama_prompt: Execute prompt for each model
+- list_ollama_models: Verify models are available
+- get_job_status: Check job completion if needed"""
+
+
+@mcp.prompt()
+async def fast_agent_workflow(
+    workflow_type: str,
+    agent_names: str,
+    initial_prompt: str,
+    model: Optional[str] = "phi4-reasoning:14b-plus-q4_K_M"
+) -> str:
+    """Run a fast-agent workflow - Create and execute agent workflows with guided parameter selection"""
+    agents = [a.strip() for a in agent_names.split(',') if a.strip()]
+    
+    # Validate workflow type
+    valid_workflow_types = ["chain", "parallel", "router", "evaluator"]
+    workflow_type_guidance = f"""
+VALID WORKFLOW TYPES:
+- chain: Sequential execution of agents
+- parallel: Run agents simultaneously  
+- router: Route to appropriate agent based on input
+- evaluator: Iterative refinement with generator/evaluator pattern
+
+SELECTED: {workflow_type}
+{"⚠️ INVALID TYPE! Use one of: " + ', '.join(valid_workflow_types) if workflow_type not in valid_workflow_types else "✓ Valid workflow type"}
+"""
+    
+    # Validate script type
+    valid_script_types = ["basic", "workflow"]
+    script_type_guidance = f"""
+VALID SCRIPT TYPES for create_fastagent_script:
+- basic: Single agent script
+- workflow: Multi-agent workflow script
+
+NOTE: For workflow_type '{workflow_type}', use create_fastagent_workflow instead of create_fastagent_script
+"""
+    
+    return f"""Create and execute a fast-agent workflow using MCP tools.
+
+TASK: Set up and run a {workflow_type} workflow with specified agents.
+
+WORKFLOW_TYPE: {workflow_type}
+AGENTS: {', '.join(agents)}
+INITIAL_PROMPT: {initial_prompt}
+DEFAULT_MODEL: {model}
+
+{workflow_type_guidance}
+
+STEP-BY-STEP INSTRUCTIONS:
+
+1. VALIDATE MODEL (Optional):
+   Tool: list_ollama_models
+   Purpose: Verify model exists and get correct name format
+   Example: Use if unsure about model name like "generic.model-name"
+
+2. CREATE WORKFLOW:
+   {script_type_guidance}
+   
+   For multi-agent workflows (recommended):
+   Tool: create_fastagent_workflow
+   Parameters:
+   - name: Choose a descriptive name (e.g., "code_executor_workflow")
+   - agents: {agents}
+   - workflow_type: "{workflow_type}"
+   - instruction: "{initial_prompt}"
+
+3. EXECUTE WORKFLOW:
+   Tool: run_fastagent_script
+   Parameters:
+   - name: Same as created workflow name
+   - agent_name: Optional, defaults to first agent
+   - message: Specific task to execute
+   - timeout: Optional, default 300 seconds
+
+4. MONITOR EXECUTION:
+   Tool: get_job_status
+   Parameters:
+   - job_id: Returned from run_fastagent_script
+   
+5. CHECK RESULTS:
+   Tool: get_job_status (when status is "complete")
+   Returns: Full output content
+
+TOOLS WITH DESCRIPTIONS:
+- list_ollama_models: List all available Ollama models with correct names
+- create_fastagent_script: Create single-agent scripts (types: basic, workflow)
+- create_fastagent_workflow: Create multi-agent workflows (types: chain, parallel, router, evaluator)
+- run_fastagent_script: Execute created scripts/workflows
+- get_job_status: Check job status and retrieve output
+- list_fastagent_scripts: View all available scripts
+
+ERROR HANDLING:
+- If "Unsupported script type": Use valid types listed above
+- If "Script not found": Use exact name from creation step
+- If "Model not found": Use list_ollama_models to find correct name"""
+
+
+@mcp.prompt()
+async def script_executor(
+    script_name: str,
+    model: str,
+    variables: Optional[str] = None
+) -> str:
+    """Execute saved script template - Run scripts with variable substitution and validation"""
+    var_dict = {}
+    var_parse_error = None
+    if variables:
+        try:
+            var_dict = json.loads(variables)
+        except json.JSONDecodeError as e:
+            var_parse_error = str(e)
+            
+    # Variable format guidance
+    var_format_guide = f"""
+VARIABLE FORMAT:
+Expected: JSON object {{"key": "value", "key2": "value2"}}
+Provided: {variables}
+{f"⚠️ PARSE ERROR: {var_parse_error}" if var_parse_error else "✓ Valid JSON" if var_dict else "ℹ️ No variables provided"}
+"""
+    
+    return f"""Execute a saved script template using MCP tools.
+
+TASK: Run a saved script with variable substitution.
+
+PARAMETERS:
+- SCRIPT_NAME: {script_name}
+- MODEL: {model}
+- VARIABLES: {json.dumps(var_dict, indent=2) if var_dict else 'None'}
+
+{var_format_guide}
+
+STEP-BY-STEP EXECUTION:
+
+1. VERIFY SCRIPT EXISTS:
+   Tool: get_script
+   Parameters:
+   - name: "{script_name}"
+   
+   If Error: "Script not found"
+   Then: Use list_scripts to see available options
+
+2. LIST AVAILABLE SCRIPTS (if needed):
+   Tool: list_scripts
+   Purpose: Show all scripts with preview
+   Action: Select correct script name
+
+3. VALIDATE MODEL:
+   Tool: list_ollama_models
+   Purpose: Ensure model exists
+   Use when: Model errors occur
+
+4. EXECUTE SCRIPT:
+   Tool: run_script
+   Parameters:
+   - script_name: "{script_name}"
+   - model: "{model}"
+   - variables: {json.dumps(var_dict) if var_dict else 'null'}
+   - wait_for_result: false (for async execution)
+   - temperature: 0.7 (optional)
+   - max_tokens: null (optional)
+   - output_format: "text" (optional)
+
+5. MONITOR EXECUTION:
+   Tool: get_job_status
+   Parameters:
+   - job_id: (returned from run_script)
+   Process:
+   - Poll periodically until status="complete"
+   - Retrieve output content
+
+6. HANDLE ERRORS:
+   Common Issues:
+   - "Script not found": Check exact name with list_scripts
+   - "Invalid variables": Ensure valid JSON format
+   - "Model not found": Verify with list_ollama_models
+
+TOOLS WITH DESCRIPTIONS:
+- get_script: Retrieve script content by name
+- list_scripts: List all saved scripts with previews and metadata
+- run_script: Execute a script with variable substitution
+- get_job_status: Monitor job progress and retrieve results
+- save_script: Create new script templates
+- list_ollama_models: List available models with exact names
+
+SCRIPT TEMPLATE SYNTAX:
+Scripts support:
+- Variable substitution: {{variable_name}}
+- System prompts: SYSTEM: <prompt text>
+- Direct prompts: Plain text after SYSTEM line"""
+
+
+@mcp.prompt()
+async def model_analysis(
+    model: str,
+    analysis_type: Optional[str] = "capabilities",
+    test_prompts: Optional[str] = None
+) -> str:
+    """Analyze model capabilities and performance"""
+    tests = []
+    if test_prompts:
+        tests = [p.strip() for p in test_prompts.split(',') if p.strip()]
+        
+    return f"""Analyze an Ollama model's capabilities and performance.
+
+TASK: Conduct a {analysis_type} analysis on the specified model.
+
+MODEL: {model}
+ANALYSIS_TYPE: {analysis_type}
+TEST_PROMPTS: {json.dumps(tests, indent=2) if tests else 'Default test suite'}
+
+INSTRUCTIONS:
+1. Verify model availability with 'list_ollama_models'
+2. Run test prompts using 'run_ollama_prompt':
+   - Test basic capabilities
+   - Measure response times
+   - Evaluate output quality
+3. For each test prompt:
+   - Execute with wait_for_result=True
+   - Capture response time and quality
+4. Compile analysis results
+5. Generate summary report
+
+TOOLS TO USE:
+- list_ollama_models: Verify model exists
+- run_ollama_prompt: Execute test prompts
+- get_job_status: Monitor job completion
+- run_workflow: For complex test sequences"""
+
+
+@mcp.prompt()
+async def iterative_refinement(
+    initial_prompt: str,
+    generator_model: str,
+    evaluator_model: str,
+    min_rating: Optional[str] = "GOOD",
+    max_iterations: Optional[int] = 3
+) -> str:
+    """Iteratively refine output using evaluator pattern"""
+    return f"""Implement an iterative refinement workflow using generator and evaluator models.
+
+TASK: Refine output through evaluator-optimizer pattern.
+
+INITIAL_PROMPT: {initial_prompt}
+GENERATOR_MODEL: {generator_model}
+EVALUATOR_MODEL: {evaluator_model}
+MIN_RATING: {min_rating}
+MAX_ITERATIONS: {max_iterations}
+
+INSTRUCTIONS:
+1. Create workflow with 'create_fastagent_workflow':
+   - workflow_type: "evaluator"
+   - agents: ["{generator_model}_agent", "{evaluator_model}_agent"]
+2. Configure evaluator settings:
+   - min_rating: "{min_rating}"
+   - max_refinements: {max_iterations}
+3. Execute workflow with 'run_fastagent_script'
+4. Monitor iterations with 'get_job_status'
+5. Return final refined output
+
+TOOLS TO USE:
+- create_fastagent_workflow: Set up evaluator-optimizer workflow
+- run_fastagent_script: Execute the workflow
+- get_job_status: Monitor progress
+- run_ollama_prompt: For individual model calls if needed"""
+
+
+@mcp.prompt()
+async def batch_processing(
+    prompts: str,
+    model: str,
+    parallel: Optional[bool] = False,
+    output_format: Optional[str] = "text"
+) -> str:
+    """Process multiple prompts in batch"""
+    prompt_list = []
+    try:
+        prompt_list = json.loads(prompts)
+    except json.JSONDecodeError:
+        pass
+        
+    return f"""Process multiple prompts in batch using Ollama models.
+
+TASK: Execute batch processing of multiple prompts.
+
+PROMPTS: {json.dumps(prompt_list, indent=2) if prompt_list else 'Invalid JSON - check format'}
+MODEL: {model}
+PARALLEL: {parallel}
+OUTPUT_FORMAT: {output_format}
+
+INSTRUCTIONS:
+1. Parse and validate prompt list
+2. For each prompt in the batch:
+   a. Call 'run_ollama_prompt' with:
+      - model: "{model}"
+      - output_format: "{output_format}"
+      - wait_for_result: {not parallel}
+3. If parallel=True:
+   - Submit all jobs without waiting
+   - Use 'list_jobs' to track progress
+   - Use 'get_job_status' for each job
+4. Collect and format all responses
+5. Return organized batch results
+
+TOOLS TO USE:
+- run_ollama_prompt: Execute each prompt
+- list_jobs: Track all running jobs
+- get_job_status: Check individual job status
+- run_workflow: Alternative for complex batch operations"""
+
+
+@mcp.prompt()
+async def conversation_flow(
+    initial_prompt: str,
+    model: str,
+    max_turns: Optional[int] = 5,
+    context_window: Optional[int] = 4096
+) -> str:
+    """Manage conversation flow with context retention"""
+    return f"""Set up and manage a conversation flow with context retention.
+
+TASK: Create a multi-turn conversation with context management.
+
+INITIAL_PROMPT: {initial_prompt}
+MODEL: {model}
+MAX_TURNS: {max_turns}
+CONTEXT_WINDOW: {context_window}
+
+INSTRUCTIONS:
+1. Initialize conversation with 'run_ollama_prompt':
+   - Use system_prompt to set context rules
+   - Include conversation memory instructions
+2. For each conversation turn:
+   a. Maintain conversation history
+   b. Include relevant context in system_prompt
+   c. Call 'run_ollama_prompt' with accumulated context
+   d. Track turn count
+3. Manage context window:
+   - Trim older messages if exceeding {context_window} tokens
+   - Preserve important context elements
+4. Continue until max_turns reached or conversation concludes
+
+TOOLS TO USE:
+- run_ollama_prompt: Execute each conversation turn
+- save_script: Save conversation template for reuse
+- run_script: Execute saved conversation patterns
+- get_job_status: Monitor response generation"""
+
+
+# Add a comprehensive guide prompt for new users
+@mcp.prompt()
+async def ollama_guide() -> str:
+    """Ollama MCP Server Guide - Interactive guide for using Ollama MCP tools"""
+    return """Welcome to the Ollama MCP Server! This interactive guide will help you use the available tools effectively.
+
+QUICK START OPTIONS:
+Choose what you want to do:
+
+1. RUN A SIMPLE PROMPT
+   Use: ollama_run_prompt
+   Example: Run "Explain quantum computing" with model "qwen3:0.6b"
+
+2. COMPARE MODEL RESPONSES
+   Use: model_comparison
+   Example: Compare how llama3:8b and mistral:7b explain AI
+
+3. CREATE AN AGENT WORKFLOW
+   Use: fast_agent_workflow
+   Examples:
+   - chain: Sequential task processing
+   - parallel: Run multiple agents simultaneously
+   - evaluator: Iterative content improvement
+
+4. EXECUTE SAVED SCRIPTS
+   Use: script_executor
+   Example: Run a template with variables
+
+5. ANALYZE MODEL PERFORMANCE
+   Use: model_analysis
+   Example: Test model capabilities and speed
+
+AVAILABLE TOOLS OVERVIEW:
+
+BASIC OPERATIONS:
+- list_ollama_models: See all available models
+- run_ollama_prompt: Execute prompts with models
+- get_job_status: Check task completion
+- list_jobs: View all running/completed jobs
+
+SCRIPT MANAGEMENT:
+- save_script: Create reusable prompt templates
+- list_scripts: View saved scripts
+- get_script: Read script content
+- run_script: Execute scripts with variables
+
+WORKFLOW TOOLS:
+- create_fastagent_script: Make single-agent scripts
+- create_fastagent_workflow: Build multi-agent workflows
+- run_fastagent_script: Execute workflows
+- list_fastagent_scripts: View available workflows
+
+COMMON WORKFLOW PATTERNS:
+
+1. BASIC PROMPT EXECUTION:
+   list_ollama_models → run_ollama_prompt → get_job_status
+
+2. SCRIPT WORKFLOW:
+   save_script → list_scripts → run_script → get_job_status
+
+3. AGENT WORKFLOW:
+   create_fastagent_workflow → run_fastagent_script → get_job_status
+
+ERROR TROUBLESHOOTING:
+
+- "Model not found": Use list_ollama_models for correct names
+- "Script not found": Check exact name with list_scripts
+- "Invalid workflow type": Use: chain, parallel, router, evaluator
+- "Invalid script type": Use: basic, workflow
+
+TIPS FOR SUCCESS:
+1. Always validate model names before use
+2. Use descriptive names for scripts and workflows
+3. Start with wait_for_result=true for immediate feedback
+4. Monitor long tasks with get_job_status
+5. Check output files for complete results
+
+Ready to start? Choose an option above or ask for specific help!"""
 
 
 if __name__ == "__main__":

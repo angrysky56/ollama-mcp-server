@@ -33,7 +33,7 @@ fast = FastAgent("Model Ensemble Workflow")
     Focus on providing insightful perspectives that others might miss.
     """,
     model="generic.qwen3",  # Good for creative responses
-    servers=["ollama_server", "brave-search"],
+    servers=["ollama_server", "arxiv-mcp-server", "desktop-commander", "brave-search"],
     use_history=True,
     # Remove request_params completely to use system defaults
 )
@@ -90,10 +90,6 @@ fast = FastAgent("Model Ensemble Workflow")
     name="model_ensemble_workflow",
     fan_out=["research_agent", "creative_agent", "tool_agent"],
     fan_in="aggregator",
-    fan_in_instruction="Aggregate the outputs from the ensemble models and provide a comprehensive analysis.",
-    fan_in_model="generic.qwen3:32b",  # Aggregator model
-    fan_in_servers=["ollama_server", "brave-search"],  # Limited server access for aggregator
-    include_request=True  # Include the original request in the fan-in message
 )
 
 async def main():

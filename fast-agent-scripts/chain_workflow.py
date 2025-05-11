@@ -19,20 +19,18 @@ fast = FastAgent("Chain Workflow Agent")
 @fast.agent(
     name="researcher",
     instruction="You are a thorough researcher. Analyze topics deeply and provide detailed information.",
-    servers=["ollama_server"],
-    model="generic.qwen3",  # Use for detailed research
+    servers=["brave-search", "arxiv-mcp-server"],
+    model="generic.qwen3:14b",  # Use for detailed research
     use_history=True,
-    request_params={"temperature": 0.7}
 )
 
 # Define the second agent (summarizer)
 @fast.agent(
     name="summarizer",
-    instruction="You are a concise summarizer. Take complex information and create clear, brief summaries.",
-    servers=["ollama_server"],
+    instruction="You are a concise summarizer. Take complex information and create clear, complete summaries.",
+    servers=["desktop-commander"],
     model="generic.qwen3",  # Use for concise summaries
     use_history=True,
-    request_params={"temperature": 0.4}  # Lower temperature for more focused summaries
 )
 
 # Define the chain workflow connecting the two agents
@@ -41,7 +39,6 @@ fast = FastAgent("Chain Workflow Agent")
     sequence=["researcher", "summarizer"],
     instruction="Research a topic thoroughly and then summarize the findings clearly.",
     cumulative=True,  # Include full context through the chain
-    continue_with_final=True  # Continue conversation with the final agent after chain completes
 )
 
 async def main():
@@ -49,7 +46,7 @@ async def main():
     async with fast.run() as agent:
         print("=== Research and Summarization Workflow ===")
         print("This workflow uses two specialized agents in sequence:")
-        print("1. Researcher - Analyzes topics in depth (phi4-reasoning)")
+        print("1. Researcher - Analyzes topics in depth (qwen3:14b)")
         print("2. Summarizer - Creates concise summaries (qwen3)")
         print("\nType your research question to begin...\n")
 
