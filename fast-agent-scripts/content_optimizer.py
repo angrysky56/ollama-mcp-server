@@ -7,8 +7,8 @@ an iterative evaluation and optimization process, leveraging Ollama models.
 """
 
 import asyncio
-import os
-from pathlib import Path
+# import os
+# from pathlib import Path
 from mcp_agent.core.fastagent import FastAgent
 
 
@@ -22,11 +22,9 @@ fast = FastAgent("Content Optimizer")
     thoughtful content based on user requests. Be creative, accurate, and comprehensive.
     Generate content that is well-structured and engaging.""",
     model="generic.qwen3",  # Use  for creative content generation
-    servers=["ollama_server"],
+    servers=["ollama_server", "brave-search", "arxiv-mcp-server", "ai-writers-workshop"],
     use_history=True,
     human_input=True                     # agent can request human input
-
-    # Remove request_params completely to use system defaults
 )
 
 @fast.agent(
@@ -44,7 +42,7 @@ fast = FastAgent("Content Optimizer")
 
     Always include a rating at the beginning of your response, e.g., "RATING: GOOD"
     """,
-    model="generic.qwen3:32b",  # Use for evaluation
+    model="generic.qwen3:30b-a3b",  # Use for evaluation
     servers=["ollama_server"],
     use_history=True,
     human_input=True                     # agent can request human input

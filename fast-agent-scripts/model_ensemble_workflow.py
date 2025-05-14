@@ -21,7 +21,7 @@ fast = FastAgent("Model Ensemble Workflow")
 
     When a question involves research topics or papers use search for relevant information.
     """,
-    model="generic.sap3e-aseke-qwen3:30b-a3b",  # Use model that supports tool usage
+    model="generic.qwen3:14b",  # Use model that supports tool usage
     servers=["ollama_server", "arxiv-mcp-server", "brave-search", "desktop-commander"],
     use_history=True,
     # Remove request_params completely to use system defaults
@@ -32,7 +32,7 @@ fast = FastAgent("Model Ensemble Workflow")
     instruction="""You are a creative agent that excels at creative thinking and nuanced responses.
     Focus on providing insightful perspectives that others might miss.
     """,
-    model="generic.qwen3:14b",  # Good for creative responses
+    model="generic.qwen3:30b-a3b",  # Good for creative responses
     servers=["ollama_server", "arxiv-mcp-server", "desktop-commander", "brave-search"],
     use_history=True,
     # Remove request_params completely to use system defaults
@@ -46,7 +46,7 @@ fast = FastAgent("Model Ensemble Workflow")
 
     Analyze requests carefully to determine which tools would be most helpful.
     """,
-    model="generic.qwen3:4b",  # Qwen has better tool capabilities
+    model="generic.qwen3:14b",  # Qwen has better tool capabilities
     servers=["ollama_server", "arxiv-mcp-server", "desktop-commander", "brave-search"],
     use_history=True,
     # Remove request_params completely to use system defaults

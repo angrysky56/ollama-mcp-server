@@ -18,10 +18,12 @@ fast = FastAgent("basic_agent")
     name="basic_agent",
     instruction="You are a helpful AI assistant with an array of available tools.",
     use_history=True, # Use history to maintain conversation context
-    model="generic.sap3e-aseke-qwen3:30b-a3b",
+    model="generic.ai-writer-toolkit-qwen3:30b-a3b",
     # Add the servers defined in fastagent.config.yaml to use for your agent, must use ollama_server for free models.
     servers=[
         "ollama_server",
+        "ai-writers-workshop",
+        "mcp-logic",
         "arxiv-mcp-server",
         "desktop-commander",
         "brave-search",
@@ -36,8 +38,9 @@ async def main():
         # Welcome and instructions
         print("=== Basic Agent Workflow ===")
         print("Tool Use: Practical tool use and information retrieval")
-        print("\nSuggested queries to try:")
-        print("- Research questions (leverages arxiv-mcp-server)")
+        print("\nSuggested queries to try based on mcp servers if available:")
+        print("- Research questions (leverages arxiv-mcp-server or mcp-logic)")
+        print("- Write a story (uses ai-writers-workshop)")
         print("- Web content analysis (leverages brave-search tool)")
         print("- System information requests, read/write (leverages desktop-commander)")
         print("- Code execution (leverages mcp-code-executor)")
