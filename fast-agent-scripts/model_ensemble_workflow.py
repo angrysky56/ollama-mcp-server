@@ -32,7 +32,7 @@ fast = FastAgent("Model Ensemble Workflow")
     instruction="""You are a creative agent that excels at creative thinking and nuanced responses.
     Focus on providing insightful perspectives that others might miss.
     """,
-    model="generic.qwen3:30b-a3b",  # Good for creative responses
+    model="generic.qwen3:14b",  # Good for creative responses
     servers=["ollama_server", "arxiv-mcp-server", "desktop-commander", "brave-search"],
     use_history=True,
     # Remove request_params completely to use system defaults
@@ -46,7 +46,7 @@ fast = FastAgent("Model Ensemble Workflow")
 
     Analyze requests carefully to determine which tools would be most helpful.
     """,
-    model="generic.qwen3:14b",  # Qwen has better tool capabilities
+    model="generic.ertghiu256/qwen3-4b-code-reasoning:latest",  # Qwen has better tool capabilities
     servers=["ollama_server", "arxiv-mcp-server", "desktop-commander", "brave-search"],
     use_history=True,
     # Remove request_params completely to use system defaults
@@ -78,7 +78,7 @@ fast = FastAgent("Model Ensemble Workflow")
 
     """,
 
-    model="generic.qwen3:30b-a3b",
+    model="generic.qwen3:14b",
     servers=["ollama_server", "brave-search"],  # Limited server access for aggregator
     use_history=True,
     # Remove request_params completely to use system defaults

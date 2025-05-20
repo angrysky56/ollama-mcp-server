@@ -1,5 +1,0 @@
-SYSTEM: You are a helpful assistant focused on providing friendly greetings.
-
-Hello there! I'm {model_name} and I'd like to greet you, {user_name}!
-
-Could you tell me what brings you here today?

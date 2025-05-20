@@ -89,36 +89,50 @@ def clean_ansi_escape_codes(text: str) -> str:
     if not text:
         return text
 
-    # Pattern for ANSI escape sequences - covers color codes and cursor movement
+    # Pattern for ANSI escape sequences - comprehensive pattern
     ansi_pattern = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
     # Remove ANSI escape sequences
     cleaned_text = ansi_pattern.sub('', text)
 
-    # Additional cleanup for other control sequences
-    # Remove cursor hide/show sequences
-    cleaned_text = re.sub(r'\x1B\[\?25[hl]', '', cleaned_text)
+    # Additional cleanup for specific control sequences we observed
+    # Remove cursor hide/show sequences [?25l and [?25h
+    cleaned_text = re.sub(r'\[\?25[hl]', '', cleaned_text)
 
-    # Remove console mode sequences
-    cleaned_text = re.sub(r'\x1B\[\?2026[hl]', '', cleaned_text)
+    # Remove console mode sequences [?2026h and [?2026l
+    cleaned_text = re.sub(r'\[\?2026[hl]', '', cleaned_text)
 
-    # Remove cursor position commands
-    cleaned_text = re.sub(r'\x1B\[\d*G', '', cleaned_text)
+    # Remove cursor position commands like [1G
+    cleaned_text = re.sub(r'\[\d*G', '', cleaned_text)
 
-    # Remove line clear commands
-    cleaned_text = re.sub(r'\x1B\[\d*K', '', cleaned_text)
+    # Remove line clear commands like [K and [2K
+    cleaned_text = re.sub(r'\[\d*K', '', cleaned_text)
 
-    # Clean up any line noise from cursor movement
-    cleaned_text = re.sub(r'\r(?!\n)', '\n', cleaned_text)
+    # Remove any remaining escape sequences that weren't caught
+    cleaned_text = re.sub(r'\x1B\[.*?[a-zA-Z]', '', cleaned_text)
 
-    # Remove Unicode braille pattern characters often used for spinners
+    # Clean up carriage returns that aren't followed by newlines
+    cleaned_text = re.sub(r'\r(?!\n)', '', cleaned_text)
+
+    # Remove standalone [ and ] that might be leftover from escape sequences
+    cleaned_text = re.sub(r'^\[', '', cleaned_text, flags=re.MULTILINE)
+    cleaned_text = re.sub(r'\]$', '', cleaned_text, flags=re.MULTILINE)
+
+    # Remove Unicode braille pattern characters used for spinners
     cleaned_text = re.sub(r'[\u2800-\u28FF]', '', cleaned_text)
+
+    # Remove any lines that are just whitespace or control characters
+    lines = cleaned_text.split('\n')
+    clean_lines = []
+    for line in lines:
+        # Keep lines that have actual content (letters or meaningful punctuation)
+        if line.strip() and any(c.isalpha() or c.isdigit() for c in line):
+            clean_lines.append(line.strip())
+
+    cleaned_text = '\n'.join(clean_lines)
 
     # Normalize multiple consecutive newlines to max two
     cleaned_text = re.sub(r'\n{3,}', '\n\n', cleaned_text)
-
-    # Remove any whitespace-only lines
-    cleaned_text = re.sub(r'\n[ \t]*\n', '\n\n', cleaned_text)
 
     # Trim leading/trailing whitespace
     cleaned_text = cleaned_text.strip()
@@ -182,7 +196,7 @@ def clean_ollama_output(content: str) -> str:
                 # If we successfully extracted response data, use it
                 cleaned_response = clean_ansi_escape_codes(actual_response)
                 return header + cleaned_response
-            
+
             # If we couldn't extract a clean response, try a different approach
             # Look for the [ASSISTANT] marker and extract text after it
             if "[ASSISTANT]" in response_text:
@@ -193,7 +207,7 @@ def clean_ollama_output(content: str) -> str:
                     cleaned_response = re.sub(r'\[.*?\]', '', assistant_response)
                     cleaned_response = clean_ansi_escape_codes(cleaned_response)
                     return header + cleaned_response
-                    
+
         except Exception:
             # Fall back to original cleaning if JSON parsing fails
             pass
@@ -207,7 +221,7 @@ def clean_ollama_output(content: str) -> str:
         cleaned_response = re.sub(r'\[[^\]]+\]', '', cleaned_response)
         cleaned_response = re.sub(r'[╭│╰─]', '', cleaned_response)
         cleaned_response = re.sub(r'[⠙⠹⠸⠼⠴⠦⠧⠇⠏]', '', cleaned_response)
-        
+
         # Reconstruct the content
         return header + cleaned_response
 
@@ -267,13 +281,11 @@ async def run_ollama_prompt(
     job_id = str(uuid.uuid4())
     output_file = OUTPUTS_DIR / f"{job_id}.txt"
 
-    # Prepare the Ollama command
-    cmd = ["ollama", "run", model, "--format", "json"]
-
-    # Prepare the input JSON
+    # Prepare the Ollama API call using curl
     ollama_input = {
+        "model": model,
         "prompt": prompt,
-        "stream": True,
+        "stream": False,  # Use non-streaming for simpler processing
         "temperature": temperature
     }
 
@@ -303,53 +315,66 @@ async def run_ollama_prompt(
         f.write(f"PROMPT: {prompt}\n\n")
         f.write("RESPONSE:\n")
 
-    # Run the process
+    # Use curl to call the Ollama API with silent mode to avoid progress output
+    cmd = [
+        "curl", "-s", "-X", "POST",
+        "http://localhost:11434/api/generate",
+        "-H", "Content-Type: application/json",
+        "-d", json.dumps(ollama_input)
+    ]
+
+    # Run the process with separate stderr
     process = subprocess.Popen(
         cmd,
-        stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.PIPE,
         text=True
     )
-
-    # Send the input to the model
-    if process.stdin:
-        process.stdin.write(json.dumps(ollama_input) + "\n")
-        process.stdin.close()
 
     # Create and run a background task to capture output
     async def capture_output():
         output = ""
         response_text = ""
+
         if process.stdout:
+            # Collect all output from curl (should be clean JSON now)
             for line in process.stdout:
-                line = line.strip()
-                if not line:
-                    continue
-                
-                output += line + "\n"
-                
-                # Process JSON output if available
-                try:
-                    json_data = json.loads(line)
-                    if "response" in json_data:
-                        response_text += json_data["response"]
-                        # Append the processed response to the file in real-time
-                        with open(output_file, "a") as f:
-                            f.write(json_data["response"])
-                except json.JSONDecodeError:
-                    # Skip download progress, UI elements and token data
-                    if "pulling" in line.lower() or "verifying" in line.lower() or "writing manifest" in line.lower() or "success" in line:
-                        # Skip download progress lines
+                output += line
+
+            # Parse the JSON response from Ollama API
+            try:
+                json_response = json.loads(output.strip())
+                if "response" in json_response:
+                    response_text = json_response["response"]
+                elif "error" in json_response:
+                    response_text = f"Error: {json_response['error']}"
+                else:
+                    response_text = f"Unexpected response format: {output}"
+            except json.JSONDecodeError:
+                # Fallback: try line by line if the whole output isn't valid JSON
+                lines = output.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if not line:
                         continue
-                    if not line.startswith(("r", "[", "╭", "│", "╰")) and not ("⠙" in line or "⠹" in line or "⠸" in line or "⠼" in line or "⠴" in line or "⠦" in line or "⠧" in line or "⠇" in line or "⠏" in line):
-                        # This might be actual response text
-                        if line and not line.startswith("METADATA:") and not line.startswith("PROMPT:"):
-                            with open(output_file, "a") as f:
-                                f.write(line + "\n")
+                    try:
+                        json_response = json.loads(line)
+                        if "response" in json_response:
+                            response_text += json_response["response"]
+                    except json.JSONDecodeError:
+                        continue
+
+                # If still no response, use cleaned output as fallback
+                if not response_text:
+                    response_text = clean_ansi_escape_codes(output)
+
+            # Write the response to file
+            if response_text and response_text.strip():
+                with open(output_file, "a") as f:
+                    f.write(response_text)
 
         # Store the complete output
-        process_outputs[job_id] = response_text or output
+        process_outputs[job_id] = response_text or clean_ansi_escape_codes(output)
 
         # Wait for the process to finish
         process.wait()
@@ -917,18 +942,36 @@ async def run_workflow(
             if "wait_for_result" in params:
                 del params["wait_for_result"]
 
-            # Execute the tool using MCP server's function registry 
-            # instead of hardcoding each tool
+            # Execute the tool by calling the appropriate function directly
             try:
-                # Get the actual tool function from MCP registry
-                tool_fn = getattr(mcp._func_registry, tool_name, None)
+                # Map tool names to actual functions
+                tool_functions = {
+                    "run_ollama_prompt": run_ollama_prompt,
+                    "list_ollama_models": list_ollama_models,
+                    "get_job_status": get_job_status,
+                    "cancel_job": cancel_job,
+                    "list_jobs": list_jobs,
+                    "save_script": save_script,
+                    "list_scripts": list_scripts,
+                    "get_script": get_script,
+                    "run_script": run_script,
+                    "run_bash_command": run_bash_command,
+                    "create_fastagent_script": create_fastagent_script,
+                    "list_fastagent_scripts": list_fastagent_scripts,
+                    "get_fastagent_script": get_fastagent_script,
+                    "update_fastagent_script": update_fastagent_script,
+                    "delete_fastagent_script": delete_fastagent_script,
+                    "run_fastagent_script": run_fastagent_script,
+                    "create_fastagent_workflow": create_fastagent_workflow,
+                }
                 
-                if tool_fn is None:
+                if tool_name not in tool_functions:
                     raise ValueError(f"Unknown tool: {tool_name}")
                 
                 # Execute the tool with its parameters
+                tool_fn = tool_functions[tool_name]
                 result = await tool_fn(**params)
-                
+
                 # Record the result
                 with open(output_file, "a") as f:
                     f.write(f"Result: {json.dumps(result)}\n")
@@ -1481,7 +1524,7 @@ async def ollama_run_prompt(
     output_format: str = "text"
 ) -> str:
     """Run a prompt with specified Ollama model - Execute prompts with detailed parameter guidance"""
-    
+
     # Model format guidance
     model_format_guide = f"""
 MODEL FORMAT EXAMPLES:
@@ -1490,7 +1533,7 @@ MODEL FORMAT EXAMPLES:
 - With provider: provider/model:tag
 CURRENT: {model}
 """
-    
+
     # Output format options
     output_format_guide = f"""
 OUTPUT FORMAT OPTIONS:
@@ -1498,7 +1541,7 @@ OUTPUT FORMAT OPTIONS:
 - json: Structured JSON output
 SELECTED: {output_format}
 """
-    
+
     return f"""Execute an Ollama model prompt using the MCP server tools.
 
 TASK: Run the following prompt with the specified Ollama model.
@@ -1529,7 +1572,7 @@ STEP-BY-STEP EXECUTION:
    Optional Parameters:
    - system_prompt: {f'"{system_prompt}"' if system_prompt else 'null'}
    - temperature: {temperature}
-   - max_tokens: {max_tokens if max_tokens else 'null'}  
+   - max_tokens: {max_tokens if max_tokens else 'null'}
    - output_format: "{output_format}"
    - wait_for_result: true (for immediate response)
 
@@ -1560,7 +1603,7 @@ async def model_comparison(
 ) -> str:
     """Compare responses from multiple models"""
     model_list = [m.strip() for m in models.split(',') if m.strip()]
-    
+
     return f"""Compare responses from multiple Ollama models for the same prompt.
 
 TASK: Run a prompt through multiple models and compare their outputs.
@@ -1592,20 +1635,20 @@ async def fast_agent_workflow(
 ) -> str:
     """Run a fast-agent workflow - Create and execute agent workflows with guided parameter selection"""
     agents = [a.strip() for a in agent_names.split(',') if a.strip()]
-    
+
     # Validate workflow type
     valid_workflow_types = ["chain", "parallel", "router", "evaluator"]
     workflow_type_guidance = f"""
 VALID WORKFLOW TYPES:
 - chain: Sequential execution of agents
-- parallel: Run agents simultaneously  
+- parallel: Run agents simultaneously
 - router: Route to appropriate agent based on input
 - evaluator: Iterative refinement with generator/evaluator pattern
 
 SELECTED: {workflow_type}
 {"⚠️ INVALID TYPE! Use one of: " + ', '.join(valid_workflow_types) if workflow_type not in valid_workflow_types else "✓ Valid workflow type"}
 """
-    
+
     # Validate script type
     valid_script_types = ["basic", "workflow"]
     script_type_guidance = f"""
@@ -1615,7 +1658,7 @@ VALID SCRIPT TYPES for create_fastagent_script:
 
 NOTE: For workflow_type '{workflow_type}', use create_fastagent_workflow instead of create_fastagent_script
 """
-    
+
     return f"""Create and execute a fast-agent workflow using MCP tools.
 
 TASK: Set up and run a {workflow_type} workflow with specified agents.
@@ -1636,7 +1679,7 @@ STEP-BY-STEP INSTRUCTIONS:
 
 2. CREATE WORKFLOW:
    {script_type_guidance}
-   
+
    For multi-agent workflows (recommended):
    Tool: create_fastagent_workflow
    Parameters:
@@ -1657,7 +1700,7 @@ STEP-BY-STEP INSTRUCTIONS:
    Tool: get_job_status
    Parameters:
    - job_id: Returned from run_fastagent_script
-   
+
 5. CHECK RESULTS:
    Tool: get_job_status (when status is "complete")
    Returns: Full output content
@@ -1690,7 +1733,7 @@ async def script_executor(
             var_dict = json.loads(variables)
         except json.JSONDecodeError as e:
             var_parse_error = str(e)
-            
+
     # Variable format guidance
     var_format_guide = f"""
 VARIABLE FORMAT:
@@ -1698,7 +1741,7 @@ Expected: JSON object {{"key": "value", "key2": "value2"}}
 Provided: {variables}
 {f"⚠️ PARSE ERROR: {var_parse_error}" if var_parse_error else "✓ Valid JSON" if var_dict else "ℹ️ No variables provided"}
 """
-    
+
     return f"""Execute a saved script template using MCP tools.
 
 TASK: Run a saved script with variable substitution.
@@ -1716,7 +1759,7 @@ STEP-BY-STEP EXECUTION:
    Tool: get_script
    Parameters:
    - name: "{script_name}"
-   
+
    If Error: "Script not found"
    Then: Use list_scripts to see available options
 
@@ -1780,7 +1823,7 @@ async def model_analysis(
     tests = []
     if test_prompts:
         tests = [p.strip() for p in test_prompts.split(',') if p.strip()]
-        
+
     return f"""Analyze an Ollama model's capabilities and performance.
 
 TASK: Conduct a {analysis_type} analysis on the specified model.
@@ -1858,7 +1901,7 @@ async def batch_processing(
         prompt_list = json.loads(prompts)
     except json.JSONDecodeError:
         pass
-        
+
     return f"""Process multiple prompts in batch using Ollama models.
 
 TASK: Execute batch processing of multiple prompts.

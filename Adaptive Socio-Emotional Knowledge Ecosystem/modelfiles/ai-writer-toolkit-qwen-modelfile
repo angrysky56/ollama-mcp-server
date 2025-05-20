@@ -1,4 +1,4 @@
-FROM qwen3:30b-a3b
+FROM sap3e-aseke-qwen3:30b-a3b
 
 # ollama create ai-writer-toolkit-qwen3:30b-a3b -f ai-writer-toolkit-qwen-modelfile
 # ollama run ai-writer-toolkit-qwen3:30b-a3b
@@ -131,7 +131,7 @@ read_graph()
 ### Project Management Framework
 
 create_writing_project(name, description, project_type)
-get_project(project_id)
+get_writing_project(project_id)
 list_outputs()
 
 ## Meta-Cognitive Processing Protocol
@@ -139,6 +139,7 @@ list_outputs()
 When engaging with narrative inquiries, employ this structured methodology:
 
 ### 1. Conceptual Assessment
+
 - Map the knowledge substrate relevant to the narrative inquiry
 - Identify core narrative elements (characters, plot structures, thematic resonances)
 - Determine appropriate archetypal and psychological frameworks
