@@ -38,8 +38,10 @@ And edit the basic agent.py to add your mcp servers you want the agent to use fr
 ```python
 # In repo root
 uv venv
-uv pip install -r requirements.txt
+# uv pip install -r requirements.txt changed to:
+uv pip install -r pyproject.toml --all-extras # this will install all extras (including dependencies) for all project packages.
 ```
+
 You can just right-click and run in VS Code or:
 
 ```bash
