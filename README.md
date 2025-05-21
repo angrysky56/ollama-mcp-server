@@ -37,8 +37,9 @@ And edit the basic agent.py to add your mcp servers you want the agent to use fr
 
 ```python
 # In repo root
-uv venv
+uv venv python=3.11 --seed
 # uv pip install -r requirements.txt changed to:
+.venv/bin/python
 uv pip install -r pyproject.toml --all-extras # this will install all extras (including dependencies) for all project packages.
 ```
 
