@@ -7,15 +7,18 @@ Includes fast-agent integration for advanced agent workflows.
 """
 
 import asyncio
+import atexit
 import importlib.util
 import json
 import os
 import re
+import signal
 import subprocess
+import sys
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 from mcp.server.fastmcp import FastMCP
 from dotenv import load_dotenv
@@ -52,9 +55,6 @@ SCRIPTS_DIR.mkdir(exist_ok=True)
 WORKFLOWS_DIR.mkdir(exist_ok=True)
 FASTAGENT_DIR.mkdir(exist_ok=True)
 
-# We don't need to create a FastAgent config - the MCP server provides all functionality directly
-# Fast-agent scripts can work with the MCP server tools without additional configuration
-
 # Initialize the MCP server
 mcp = FastMCP("OllamaMCPServer")
 
@@ -66,14 +66,63 @@ print(f"Using workflows directory: {WORKFLOWS_DIR}")
 # Global instance for accessing server in prompt handlers
 server_instance = None
 
-# Dictionary to track running processes
+# CRITICAL: Process and task tracking for cleanup
 running_processes: Dict[str, subprocess.Popen] = {}
+background_tasks: Set[asyncio.Task] = set()
 
 # Dictionary to store process output for async handling
 process_outputs: Dict[str, str] = {}
 
 # Store the selected default Ollama model
 default_ollama_model: Optional[str] = None
+
+
+def track_background_task(task: asyncio.Task) -> None:
+    """Track background tasks for proper cleanup"""
+    background_tasks.add(task)
+    task.add_done_callback(background_tasks.discard)
+
+
+def cleanup_processes() -> None:
+    """Clean up all running processes and background tasks"""
+    print("Cleaning up processes and tasks...")
+    
+    # Cancel background tasks
+    for task in background_tasks.copy():  # Use copy to avoid modification during iteration
+        if not task.done():
+            task.cancel()
+    
+    # Terminate all processes
+    for job_id, process in list(running_processes.items()):  # Use list() to avoid modification during iteration
+        if process and process.poll() is None:
+            print(f"Terminating process {job_id}")
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                print(f"Force killing process {job_id}")
+                process.kill()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    pass  # Process is really stuck, move on
+    
+    running_processes.clear()
+    background_tasks.clear()
+    print("Cleanup completed")
+
+
+def signal_handler(signum: int, frame) -> None:
+    """Handle termination signals"""
+    print(f"Received signal {signum}, cleaning up...")
+    cleanup_processes()
+    sys.exit(0)
+
+
+# CRITICAL: Register cleanup handlers
+signal.signal(signal.SIGTERM, signal_handler)
+signal.signal(signal.SIGINT, signal_handler)
+atexit.register(cleanup_processes)
 
 
 def clean_ansi_escape_codes(text: str) -> str:
@@ -237,7 +286,8 @@ async def list_ollama_models() -> Dict[str, Any]:
             ["ollama", "list"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
+            timeout=30  # Add timeout
         )
 
         lines = process.stdout.strip().split('\n')
@@ -258,6 +308,11 @@ async def list_ollama_models() -> Dict[str, Any]:
         return {
             "status": "success",
             "models": models
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "error",
+            "message": "Command timed out after 30 seconds"
         }
     except subprocess.CalledProcessError as e:
         return {
@@ -323,111 +378,126 @@ async def run_ollama_prompt(
         "-d", json.dumps(ollama_input)
     ]
 
-    # Run the process with separate stderr
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
-    )
+    # CRITICAL: Safe subprocess creation with tracking and cleanup
+    try:
+        # Run the process with separate stderr
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
 
-    # Create and run a background task to capture output
-    async def capture_output():
-        output = ""
-        response_text = ""
+        # CRITICAL: Track the process
+        running_processes[job_id] = process
 
-        if process.stdout:
-            # Collect all output from curl (should be clean JSON now)
-            for line in process.stdout:
-                output += line
+        # Create and run a background task to capture output
+        async def capture_output():
+            output = ""
+            response_text = ""
 
-            # Parse the JSON response from Ollama API
             try:
-                json_response = json.loads(output.strip())
-                if "response" in json_response:
-                    response_text = json_response["response"]
-                elif "error" in json_response:
-                    response_text = f"Error: {json_response['error']}"
-                else:
-                    response_text = f"Unexpected response format: {output}"
-            except json.JSONDecodeError:
-                # Fallback: try line by line if the whole output isn't valid JSON
-                lines = output.split('\n')
-                for line in lines:
-                    line = line.strip()
-                    if not line:
-                        continue
+                if process.stdout:
+                    # Collect all output from curl (should be clean JSON now)
+                    for line in process.stdout:
+                        output += line
+
+                    # Parse the JSON response from Ollama API
                     try:
-                        json_response = json.loads(line)
+                        json_response = json.loads(output.strip())
                         if "response" in json_response:
-                            response_text += json_response["response"]
+                            response_text = json_response["response"]
+                        elif "error" in json_response:
+                            response_text = f"Error: {json_response['error']}"
+                        else:
+                            response_text = f"Unexpected response format: {output}"
                     except json.JSONDecodeError:
-                        continue
+                        # Fallback: try line by line if the whole output isn't valid JSON
+                        lines = output.split('\n')
+                        for line in lines:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                json_response = json.loads(line)
+                                if "response" in json_response:
+                                    response_text += json_response["response"]
+                            except json.JSONDecodeError:
+                                continue
 
-                # If still no response, use cleaned output as fallback
-                if not response_text:
-                    response_text = clean_ansi_escape_codes(output)
+                        # If still no response, use cleaned output as fallback
+                        if not response_text:
+                            response_text = clean_ansi_escape_codes(output)
 
-            # Write the response to file
-            if response_text and response_text.strip():
-                with open(output_file, "a") as f:
-                    f.write(response_text)
+                    # Write the response to file
+                    if response_text and response_text.strip():
+                        with open(output_file, "a") as f:
+                            f.write(response_text)
 
-        # Store the complete output
-        process_outputs[job_id] = response_text or clean_ansi_escape_codes(output)
+                # Store the complete output
+                process_outputs[job_id] = response_text or clean_ansi_escape_codes(output)
 
-        # Wait for the process to finish
-        process.wait()
-
-    # Start the background task to capture output without waiting
-    asyncio.create_task(capture_output())
-
-    # Store the process for management
-    running_processes[job_id] = process
-
-    # If wait_for_result is True, wait for the process to complete
-    if wait_for_result:
-        await asyncio.to_thread(process.wait)
-
-        # Check process status
-        if process.returncode == 0:
-            try:
-                with open(output_file, "r") as f:
-                    content = f.read()
-
-                # Clean up the process
+                # Wait for the process to finish
+                process.wait()
+            finally:
+                # CRITICAL: Always clean up
                 if job_id in running_processes:
                     del running_processes[job_id]
 
-                # Clean the output
-                content = clean_ollama_output(content)
+        # Start the background task to capture output without waiting
+        task = asyncio.create_task(capture_output())
+        track_background_task(task)  # CRITICAL: Track the task
 
-                return {
-                    "status": "complete",
-                    "job_id": job_id,
-                    "output_file": str(output_file),
-                    "content": content
-                }
-            except Exception as e:
+        # If wait_for_result is True, wait for the process to complete
+        if wait_for_result:
+            await asyncio.to_thread(process.wait)
+
+            # Check process status
+            if process.returncode == 0:
+                try:
+                    with open(output_file, "r") as f:
+                        content = f.read()
+
+                    # Process is already cleaned up in capture_output finally block
+
+                    # Clean the output
+                    content = clean_ollama_output(content)
+
+                    return {
+                        "status": "complete",
+                        "job_id": job_id,
+                        "output_file": str(output_file),
+                        "content": content
+                    }
+                except Exception as e:
+                    return {
+                        "status": "error",
+                        "job_id": job_id,
+                        "message": f"Error reading output: {str(e)}"
+                    }
+            else:
                 return {
                     "status": "error",
                     "job_id": job_id,
-                    "message": f"Error reading output: {str(e)}"
+                    "message": f"Process exited with code {process.returncode}"
                 }
-        else:
-            return {
-                "status": "error",
-                "job_id": job_id,
-                "message": f"Process exited with code {process.returncode}"
-            }
 
-    # Return immediately with job information
-    return {
-        "status": "running",
-        "job_id": job_id,
-        "output_file": str(output_file),
-        "message": "Process started, check job status for completion"
-    }
+        # Return immediately with job information
+        return {
+            "status": "running",
+            "job_id": job_id,
+            "output_file": str(output_file),
+            "message": "Process started, check job status for completion"
+        }
+    except Exception as e:
+        # CRITICAL: Clean up on error
+        if job_id in running_processes:
+            del running_processes[job_id]
+        return {
+            "status": "error",
+            "job_id": job_id,
+            "message": f"Failed to start process: {str(e)}"
+        }
 
 
 @mcp.tool()
@@ -805,83 +875,102 @@ async def run_bash_command(
         f.write(f"COMMAND: {command}\n\n")
         f.write("OUTPUT:\n")
 
-    # Run the command
-    process = subprocess.Popen(
-        command,
-        shell=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
+    # CRITICAL: Safe subprocess creation with tracking and cleanup
+    try:
+        # Run the command
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
 
-    # Create and run a background task to capture output
-    async def capture_output():
-        output = ""
-        if process.stdout:
-            for line in process.stdout:
-                output += line
-                # Append the output to the file in real-time
-                with open(output_file, "a") as f:
-                    f.write(line)
+        # CRITICAL: Track the process
+        running_processes[job_id] = process
 
-        # Store the complete output
-        process_outputs[job_id] = output
+        # Create and run a background task to capture output
+        async def capture_output():
+            output = ""
+            try:
+                if process.stdout:
+                    for line in process.stdout:
+                        output += line
+                        # Append the output to the file in real-time
+                        with open(output_file, "a") as f:
+                            f.write(line)
 
-        # Wait for the process to finish
-        process.wait()
+                # Store the complete output
+                process_outputs[job_id] = output
 
-    # Start the background task to capture output without waiting
-    asyncio.create_task(capture_output())
+                # Wait for the process to finish
+                process.wait()
+            finally:
+                # CRITICAL: Always clean up
+                if job_id in running_processes:
+                    del running_processes[job_id]
 
-    # Store the process for management
-    running_processes[job_id] = process
+        # Start the background task to capture output without waiting
+        task = asyncio.create_task(capture_output())
+        track_background_task(task)  # CRITICAL: Track the task
 
-    # If wait_for_result is True, wait for the process to complete
-    if wait_for_result:
-        try:
-            if timeout:
-                await asyncio.wait_for(asyncio.to_thread(process.wait), timeout=timeout)
-            else:
-                await asyncio.to_thread(process.wait)
+        # If wait_for_result is True, wait for the process to complete
+        if wait_for_result:
+            try:
+                if timeout:
+                    await asyncio.wait_for(asyncio.to_thread(process.wait), timeout=timeout)
+                else:
+                    await asyncio.to_thread(process.wait)
 
-            # Read the output file
-            with open(output_file, "r") as f:
-                content = f.read()
+                # Read the output file
+                with open(output_file, "r") as f:
+                    content = f.read()
 
-            # Clean up the process
-            if job_id in running_processes:
-                del running_processes[job_id]
+                # Process is already cleaned up in capture_output finally block
 
-            return {
-                "status": "complete",
-                "job_id": job_id,
-                "output_file": str(output_file),
-                "exitcode": process.returncode,
-                "content": content
-            }
-        except asyncio.TimeoutError:
-            # Timeout occurred, terminate the process
-            process.terminate()
-            return {
-                "status": "timeout",
-                "job_id": job_id,
-                "output_file": str(output_file),
-                "message": f"Command timed out after {timeout} seconds"
-            }
-        except Exception as e:
-            return {
-                "status": "error",
-                "job_id": job_id,
-                "message": f"Error: {str(e)}"
-            }
+                return {
+                    "status": "complete",
+                    "job_id": job_id,
+                    "output_file": str(output_file),
+                    "exitcode": process.returncode,
+                    "content": content
+                }
+            except asyncio.TimeoutError:
+                # Timeout occurred, terminate the process
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                return {
+                    "status": "timeout",
+                    "job_id": job_id,
+                    "output_file": str(output_file),
+                    "message": f"Command timed out after {timeout} seconds"
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "job_id": job_id,
+                    "message": f"Error: {str(e)}"
+                }
 
-    # Return immediately with job information
-    return {
-        "status": "running",
-        "job_id": job_id,
-        "output_file": str(output_file),
-        "message": "Command started, check job status for completion"
-    }
+        # Return immediately with job information
+        return {
+            "status": "running",
+            "job_id": job_id,
+            "output_file": str(output_file),
+            "message": "Command started, check job status for completion"
+        }
+    except Exception as e:
+        # CRITICAL: Clean up on error
+        if job_id in running_processes:
+            del running_processes[job_id]
+        return {
+            "status": "error",
+            "job_id": job_id,
+            "message": f"Failed to start command: {str(e)}"
+        }
 
 
 # This is our fix to properly handle nested functions in the workflow tool
@@ -922,86 +1011,92 @@ async def run_workflow(
     async def execute_workflow():
         results = []
 
-        for i, step in enumerate(steps):
-            step_num = i + 1
-            tool_name = step.get("tool")
-            params = step.get("params", {})
-            name = step.get("name", f"Step {step_num}")
+        try:
+            for i, step in enumerate(steps):
+                step_num = i + 1
+                tool_name = step.get("tool")
+                params = step.get("params", {})
+                name = step.get("name", f"Step {step_num}")
 
-            # Skip step if it has no tool name
-            if not tool_name:
-                continue
+                # Skip step if it has no tool name
+                if not tool_name:
+                    continue
 
-            # Log step execution
+                # Log step execution
+                with open(output_file, "a") as f:
+                    f.write(f"\n--- STEP {step_num}: {name} ---\n")
+                    f.write(f"Tool: {tool_name}\n")
+                    f.write(f"Params: {json.dumps(params)}\n\n")
+
+                # Remove any wait_for_result parameters to ensure consistent behavior
+                if "wait_for_result" in params:
+                    del params["wait_for_result"]
+
+                # Execute the tool by calling the appropriate function directly
+                try:
+                    # Map tool names to actual functions
+                    tool_functions = {
+                        "run_ollama_prompt": run_ollama_prompt,
+                        "list_ollama_models": list_ollama_models,
+                        "get_job_status": get_job_status,
+                        "cancel_job": cancel_job,
+                        "list_jobs": list_jobs,
+                        "save_script": save_script,
+                        "list_scripts": list_scripts,
+                        "get_script": get_script,
+                        "run_script": run_script,
+                        "run_bash_command": run_bash_command,
+                        "create_fastagent_script": create_fastagent_script,
+                        "list_fastagent_scripts": list_fastagent_scripts,
+                        "get_fastagent_script": get_fastagent_script,
+                        "update_fastagent_script": update_fastagent_script,
+                        "delete_fastagent_script": delete_fastagent_script,
+                        "run_fastagent_script": run_fastagent_script,
+                        "create_fastagent_workflow": create_fastagent_workflow,
+                    }
+                    
+                    if tool_name not in tool_functions:
+                        raise ValueError(f"Unknown tool: {tool_name}")
+                    
+                    # Execute the tool with its parameters
+                    tool_fn = tool_functions[tool_name]
+                    result = await tool_fn(**params)
+
+                    # Record the result
+                    with open(output_file, "a") as f:
+                        f.write(f"Result: {json.dumps(result)}\n")
+
+                    results.append({
+                        "step": step_num,
+                        "name": name,
+                        "status": "success",
+                        "result": result
+                    })
+                except Exception as e:
+                    error_msg = f"ERROR executing {tool_name}: {str(e)}"
+                    with open(output_file, "a") as f:
+                        f.write(f"{error_msg}\n")
+
+                    results.append({
+                        "step": step_num,
+                        "name": name,
+                        "status": "error",
+                        "message": error_msg
+                    })
+
+            # Mark workflow as complete
             with open(output_file, "a") as f:
-                f.write(f"\n--- STEP {step_num}: {name} ---\n")
-                f.write(f"Tool: {tool_name}\n")
-                f.write(f"Params: {json.dumps(params)}\n\n")
+                f.write("\n--- WORKFLOW COMPLETED ---\n")
 
-            # Remove any wait_for_result parameters to ensure consistent behavior
-            if "wait_for_result" in params:
-                del params["wait_for_result"]
-
-            # Execute the tool by calling the appropriate function directly
-            try:
-                # Map tool names to actual functions
-                tool_functions = {
-                    "run_ollama_prompt": run_ollama_prompt,
-                    "list_ollama_models": list_ollama_models,
-                    "get_job_status": get_job_status,
-                    "cancel_job": cancel_job,
-                    "list_jobs": list_jobs,
-                    "save_script": save_script,
-                    "list_scripts": list_scripts,
-                    "get_script": get_script,
-                    "run_script": run_script,
-                    "run_bash_command": run_bash_command,
-                    "create_fastagent_script": create_fastagent_script,
-                    "list_fastagent_scripts": list_fastagent_scripts,
-                    "get_fastagent_script": get_fastagent_script,
-                    "update_fastagent_script": update_fastagent_script,
-                    "delete_fastagent_script": delete_fastagent_script,
-                    "run_fastagent_script": run_fastagent_script,
-                    "create_fastagent_workflow": create_fastagent_workflow,
-                }
-                
-                if tool_name not in tool_functions:
-                    raise ValueError(f"Unknown tool: {tool_name}")
-                
-                # Execute the tool with its parameters
-                tool_fn = tool_functions[tool_name]
-                result = await tool_fn(**params)
-
-                # Record the result
-                with open(output_file, "a") as f:
-                    f.write(f"Result: {json.dumps(result)}\n")
-
-                results.append({
-                    "step": step_num,
-                    "name": name,
-                    "status": "success",
-                    "result": result
-                })
-            except Exception as e:
-                error_msg = f"ERROR executing {tool_name}: {str(e)}"
-                with open(output_file, "a") as f:
-                    f.write(f"{error_msg}\n")
-
-                results.append({
-                    "step": step_num,
-                    "name": name,
-                    "status": "error",
-                    "message": error_msg
-                })
-
-        # Mark workflow as complete
-        with open(output_file, "a") as f:
-            f.write("\n--- WORKFLOW COMPLETED ---\n")
-
-        return results
+            return results
+        except Exception as e:
+            with open(output_file, "a") as f:
+                f.write(f"\n--- WORKFLOW ERROR: {str(e)} ---\n")
+            return []
 
     # Start the workflow in the background
-    asyncio.create_task(execute_workflow())
+    task = asyncio.create_task(execute_workflow())
+    track_background_task(task)  # CRITICAL: Track the task
 
     return {
         "status": "running",
@@ -1353,40 +1448,57 @@ async def run_fastagent_script(
         f.write(f"COMMAND: {' '.join(cmd)}\n\n")
         f.write("OUTPUT:\n")
 
-    # Run the command
-    process = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True
-    )
+    # CRITICAL: Safe subprocess creation with tracking and cleanup
+    try:
+        # Run the command
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
 
-    # Create and run a background task to capture output
-    async def capture_output():
-        output = ""
-        if process.stdout:
-            for line in process.stdout:
-                output += line
-                # Append the output to the file in real-time
-                with open(output_file, "a") as f:
-                    f.write(line)
+        # CRITICAL: Track the process
+        running_processes[job_id] = process
 
-        # Wait for the process to finish
-        process.wait()
+        # Create and run a background task to capture output
+        async def capture_output():
+            output = ""
+            try:
+                if process.stdout:
+                    for line in process.stdout:
+                        output += line
+                        # Append the output to the file in real-time
+                        with open(output_file, "a") as f:
+                            f.write(line)
 
-    # Start the background task to capture output without waiting
-    asyncio.create_task(capture_output())
+                # Wait for the process to finish
+                process.wait()
+            finally:
+                # CRITICAL: Always clean up
+                if job_id in running_processes:
+                    del running_processes[job_id]
 
-    # Store the process for management
-    running_processes[job_id] = process
+        # Start the background task to capture output without waiting
+        task = asyncio.create_task(capture_output())
+        track_background_task(task)  # CRITICAL: Track the task
 
-    # Return immediately with job information
-    return {
-        "status": "running",
-        "job_id": job_id,
-        "output_file": str(output_file),
-        "message": "FastAgent script started, check job status for completion"
-    }
+        # Return immediately with job information
+        return {
+            "status": "running",
+            "job_id": job_id,
+            "output_file": str(output_file),
+            "message": "FastAgent script started, check job status for completion"
+        }
+    except Exception as e:
+        # CRITICAL: Clean up on error
+        if job_id in running_processes:
+            del running_processes[job_id]
+        return {
+            "status": "error",
+            "job_id": job_id,
+            "message": f"Failed to start FastAgent script: {str(e)}"
+        }
 
 
 @mcp.tool()
@@ -2050,5 +2162,13 @@ TIPS FOR SUCCESS:
 Ready to start? Choose an option above or ask for specific help!"""
 
 
+# CRITICAL: Proper main block with cleanup
 if __name__ == "__main__":
-    mcp.run()
+    try:
+        mcp.run()
+    except KeyboardInterrupt:
+        print("Server interrupted by user")
+    except Exception as e:
+        print(f"Server error: {e}")
+    finally:
+        cleanup_processes()

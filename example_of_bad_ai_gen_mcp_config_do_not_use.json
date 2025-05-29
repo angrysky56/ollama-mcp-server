@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "ollama-mcp-server": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/home/ty/Repositories/ai_workspace/ollama-mcp-server",
+        "run",
+        "python",
+        "src/ollama_mcp_server/server.py"
+      ],
+      "env": {
+        "OLLAMA_MCP_ROOT": "/home/ty/Repositories/ai_workspace/ollama-mcp-server"
+      }
+    }
+  }
+}
